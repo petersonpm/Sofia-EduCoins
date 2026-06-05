@@ -1,0 +1,144 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id               String            @id @default(uuid())
+  name             String
+  email            String            @unique
+  password         String
+  role             String            @default("CHILD") // PARENT or CHILD
+  
+  // Relacionamento Família (Auto-relacionamento)
+  parentId         String?
+  parent           User?             @relation("FamilyRelation", fields: [parentId], references: [id])
+  children         User[]            @relation("FamilyRelation")
+
+  // Atributos de Gamificação (Apenas para perfil CHILD)
+  xp               Int               @default(0)
+  level            Int               @default(1)
+  streak           Int               @default(0)
+  lastStreakAt     DateTime?
+  avatarConfig     String            @default("{}") // Configuração JSON do avatar atual (ex: {"hair":"hair1", "clothes":"clothes1"})
+
+  // Relacionamentos
+  wallet           Wallet?
+  createdTasks     Task[]            @relation("CreatedTasks")
+  assignedTasks    Task[]            @relation("AssignedTasks")
+  goals            Goal[]
+  expenses         Expense[]
+  achievements     UserAchievement[]
+  notifications    Notification[]
+
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+}
+
+model Wallet {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  balanceCoins     Int      @default(0)
+  balanceReal      Decimal  @default(0.00) @db.Decimal(10, 2)
+  
+  totalEarnedCoins Int      @default(0)
+  totalEarnedReal  Decimal  @default(0.00) @db.Decimal(10, 2)
+  totalSpentCoins  Int      @default(0)
+  totalSpentReal   Decimal  @default(0.00) @db.Decimal(10, 2)
+}
+
+model Task {
+  id             String     @id @default(uuid())
+  title          String
+  description    String?
+  category       String     // Ex: "Organização", "Estudos", "Leitura", "Higiene", "Responsabilidade", "Atividades físicas", "Tarefas domésticas"
+  difficulty     String     // Ex: "Fácil", "Médio", "Difícil"
+  status         String     @default("PENDING") // PENDING, COMPLETED, APPROVED, REJECTED
+  
+  rewardType     String     @default("COINS") // COINS, REAL_MONEY, BOTH
+  rewardCoins    Int        @default(0)
+  rewardReal     Decimal    @default(0.00) @db.Decimal(10, 2)
+  xpReward       Int        @default(10) // XP ganho ao completar
+  
+  deadline       DateTime?
+  completedAt    DateTime?
+  approvedAt     DateTime?
+  
+  createdById    String
+  createdBy      User       @relation("CreatedTasks", fields: [createdById], references: [id])
+  
+  assignedToId   String
+  assignedTo     User       @relation("AssignedTasks", fields: [assignedToId], references: [id])
+  
+  createdAt      DateTime   @default(now())
+}
+
+model Goal {
+  id             String   @id @default(uuid())
+  title          String
+  targetCoins    Int      @default(0)
+  targetReal     Decimal  @default(0.00) @db.Decimal(10, 2)
+  currentCoins   Int      @default(0)
+  currentReal    Decimal  @default(0.00) @db.Decimal(10, 2)
+  type           String   // COINS, REAL_MONEY
+  completed      Boolean  @default(false)
+  
+  childId        String
+  child          User     @relation(fields: [childId], references: [id], onDelete: Cascade)
+  
+  createdAt      DateTime @default(now())
+}
+
+model Expense {
+  id             String   @id @default(uuid())
+  description    String
+  valueCoins     Int      @default(0)
+  valueReal      Decimal  @default(0.00) @db.Decimal(10, 2)
+  type           String   // COINS, REAL_MONEY
+  status         String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  
+  childId        String
+  child          User     @relation(fields: [childId], references: [id], onDelete: Cascade)
+  
+  createdAt      DateTime @default(now())
+}
+
+model Achievement {
+  id             String            @id @default(uuid())
+  name           String
+  description    String
+  badgeKey       String            // Identificador visual para o ícone no frontend
+  userRelations  UserAchievement[]
+}
+
+model UserAchievement {
+  id            String      @id @default(uuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  unlockedAt    DateTime    @default(now())
+}
+
+model AvatarShopItem {
+  id        String         @id @default(uuid())
+  name      String
+  category  String         // HAIR, CLOTHES, ACCESSORY, MASCOT
+  price     Int
+  assetKey  String         // Identificador visual da peça (ex: "hair_pink", "mascot_dragon")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  message   String
+  read      Boolean  @default(false)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
