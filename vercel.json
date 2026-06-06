@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/((?!api|assets|favicon.svg|sw.js|manifest.webmanifest|registerSW.js|workbox-).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
