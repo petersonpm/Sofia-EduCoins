@@ -1,18 +1,179 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
+import {
+  useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { 
-  Shield, Users, PlusCircle, Check, X, Award, Flame, 
-  Wallet, Sparkles, TrendingUp, BookOpen, Trash2, Edit3, 
-  UserPlus, Mail, Key, User, Plus, DollarSign, ListTodo, 
-  BarChart3, PiggyBank, Bell, AlertCircle, Coins, Trophy,
-  ClipboardList, Home, Activity, ShoppingBag, Target, Heart, LogOut
+  Shield,
+  Users,
+  PlusCircle,
+  Check,
+  X,
+  Award,
+  Flame,
+  Wallet,
+  Sparkles,
+  TrendingUp,
+  BookOpen,
+  Trash2,
+  Edit3,
+  UserPlus,
+  Mail,
+  Key,
+  User,
+  Plus,
+  DollarSign,
+  ListTodo,
+  BarChart3,
+  PiggyBank,
+  Bell,
+  AlertCircle,
+  Coins,
+  Trophy,
+  ClipboardList,
+  Home,
+  Activity,
+  ShoppingBag,
+  Target,
+  Heart,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  Calendar,
+  CheckCircle2
 } from 'lucide-react';
 import AvatarRenderer from '../components/AvatarRenderer';
 
 export default function ParentDashboard() {
   const { user, logout, refreshUser } = useAuth();
-  
+  // Agenda / Calendário States & Helpers
+  const getSundayOfCurrentWeek = (date = new Date()) => {
+    const today = new Date(date);
+    const day = today.getDay(); // 0: Dom, 1: Seg, etc.
+    const sunday = new Date(today);
+    sunday.setDate(today.getDate() - day);
+    return sunday;
+  };
+
+  const isSameDay = (d1, d2) => {
+    if (!d1 || !d2) return false;
+    const date1 = new Date(d1);
+    const date2 = new Date(d2);
+    return (
+      date1.getDate() === date2.getDate() &&
+      date1.getMonth() === date2.getMonth() &&
+      date1.getFullYear() === date2.getFullYear()
+    );
+  };
+
+  const getMonthName = (date) => {
+    const months = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return `${months[date.getMonth()]} de ${date.getFullYear()}`;
+  };
+
+  const getWeekdayName = (date) => {
+    const weekdays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+    return weekdays[date.getDay()];
+  };
+
+  const getWeekDays = (weekStart) => {
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart);
+      d.setDate(weekStart.getDate() + i);
+      days.push(d);
+    }
+    return days;
+  };
+
+  const getDaysInMonth = (year, month) => {
+    return new Date(year, month + 1, 0).getDate();
+  };
+
+  const getMonthDays = (date = new Date()) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const daysInMonth = getDaysInMonth(year, month);
+    const firstDayIndex = new Date(year, month, 1).getDay(); // 0: Dom, 1: Seg, etc.
+
+    const days = [];
+    const prevMonthDays = new Date(year, month, 0).getDate();
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      days.push({
+        date: new Date(year, month - 1, prevMonthDays - i),
+        isCurrentMonth: false
+      });
+    }
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push({
+        date: new Date(year, month, i),
+        isCurrentMonth: true
+      });
+    }
+    const remaining = 42 - days.length;
+    for (let i = 1; i <= remaining; i++) {
+      days.push({
+        date: new Date(year, month + 1, i),
+        isCurrentMonth: false
+      });
+    }
+    return days;
+  };
+
+  const [taskViewMode, setTaskViewMode] = useState('weekly'); // 'weekly', 'monthly', 'all'
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [currentWeekStart, setCurrentWeekStart] = useState(getSundayOfCurrentWeek());
+  const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
+
+  const handlePrevWeek = () => {
+    const newDate = new Date(currentWeekStart);
+    newDate.setDate(newDate.getDate() - 7);
+    setCurrentWeekStart(newDate);
+    setSelectedDate(newDate);
+  };
+
+  const handleNextWeek = () => {
+    const newDate = new Date(currentWeekStart);
+    newDate.setDate(newDate.getDate() + 7);
+    setCurrentWeekStart(newDate);
+    setSelectedDate(newDate);
+  };
+
+  const handlePrevMonth = () => {
+    const newDate = new Date(currentMonthDate);
+    newDate.setMonth(newDate.getMonth() - 1);
+    setCurrentMonthDate(newDate);
+  };
+
+  const handleNextMonth = () => {
+    const newDate = new Date(currentMonthDate);
+    newDate.setMonth(newDate.getMonth() + 1);
+    setCurrentMonthDate(newDate);
+  };
+
+  const getDayStatusDots = (day) => {
+    const dayTasks = tasks.filter(t => t.assignedToId === selectedChildId);
+    const dayFiltered = dayTasks.filter(task => {
+      if (task.isDaily) {
+        return (task.status === 'APPROVED' && isSameDay(task.approvedAt, day)) ||
+               (task.status !== 'APPROVED' && isSameDay(selectedDate, day));
+      }
+      if (task.deadline) {
+        return isSameDay(task.deadline, day);
+      }
+      return isSameDay(task.createdAt, day);
+    });
+    
+    const hasApproved = dayFiltered.some(t => t.status === 'APPROVED');
+    const hasCompleted = dayFiltered.some(t => t.status === 'COMPLETED');
+    const hasRejected = dayFiltered.some(t => t.status === 'REJECTED');
+    const hasPending = dayFiltered.some(t => t.status === 'PENDING');
+    
+    return { hasApproved, hasCompleted, hasRejected, hasPending };
+  };
+
   // Navigation: 'summary', 'approvals', 'tasks', 'family'
   const [activeTab, setActiveTab] = useState('summary');
 
@@ -22,22 +183,37 @@ export default function ParentDashboard() {
   const [tasks, setTasks] = useState([]);
   const [goals, setGoals] = useState([]);
   const [expenseRequests, setExpenseRequests] = useState([]);
-  
+
   // Modals
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showCreateGoal, setShowCreateGoal] = useState(false);
   const [showAddChild, setShowAddChild] = useState(false);
-  
+  const [showEditTask, setShowEditTask] = useState(false);
+  const [editTaskData, setEditTaskData] = useState(null);
+
+  // Edit task form fields
+  const [editTaskTitle, setEditTaskTitle] = useState('');
+  const [editTaskDescription, setEditTaskDescription] = useState('');
+  const [editTaskCategory, setEditTaskCategory] = useState('Organização');
+  const [editTaskDifficulty, setEditTaskDifficulty] = useState('Fácil');
+  const [editTaskRewardType, setEditTaskRewardType] = useState('COINS');
+  const [editTaskRewardCoins, setEditTaskRewardCoins] = useState(10);
+  const [editTaskRewardReal, setEditTaskRewardReal] = useState(2.00);
+  const [editTaskXpReward, setEditTaskXpReward] = useState(15);
+  const [editTaskDeadline, setEditTaskDeadline] = useState('');
+  const [editTaskIsDaily, setEditTaskIsDaily] = useState(true);
+
   // Task form fields
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
   const [taskCategory, setTaskCategory] = useState('Organização');
   const [taskDifficulty, setTaskDifficulty] = useState('Fácil');
-  const [taskRewardType, setTaskRewardType] = useState('COINS'); // 'COINS', 'REAL_MONEY', 'BOTH'
+  const [taskRewardType, setTaskRewardType] = useState('COINS');
   const [taskRewardCoins, setTaskRewardCoins] = useState(10);
   const [taskRewardReal, setTaskRewardReal] = useState(2.00);
   const [taskXpReward, setTaskXpReward] = useState(15);
   const [taskDeadline, setTaskDeadline] = useState('');
+  const [taskIsDaily, setTaskIsDaily] = useState(true);
 
   // Goal form fields
   const [goalTitle, setGoalTitle] = useState('');
@@ -50,6 +226,13 @@ export default function ParentDashboard() {
   const [childEmail, setChildEmail] = useState('');
   const [childPassword, setChildPassword] = useState('');
   const [memberType, setMemberType] = useState('CHILD'); // 'CHILD' or 'PARENT'
+
+  // Edit child modal
+  const [showEditChild, setShowEditChild] = useState(false);
+  const [editChildData, setEditChildData] = useState(null); // {id, name, email}
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editPassword, setEditPassword] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -122,6 +305,95 @@ export default function ParentDashboard() {
     }
   };
 
+  const openEditChild = (child) => {
+    setEditChildData(child);
+    setEditName(child.name);
+    setEditEmail(child.email);
+    setEditPassword('');
+    setError('');
+    setShowEditChild(true);
+  };
+
+  const handleEditChild = async (e) => {
+    e.preventDefault();
+    if (!editChildData) return;
+    setError('');
+    setLoading(true);
+    try {
+      const payload = {};
+      if (editName && editName !== editChildData.name) payload.name = editName;
+      if (editEmail && editEmail !== editChildData.email) payload.email = editEmail;
+      if (editPassword) payload.password = editPassword;
+
+      await api.put(`/auth/child/${editChildData.id}`, payload);
+      setSuccess(`Dados de "${editName}" atualizados com sucesso!`);
+      setShowEditChild(false);
+      setEditChildData(null);
+      loadData();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Erro ao atualizar dados.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteChild = async (child) => {
+    if (!window.confirm(`Tem certeza que deseja excluir "${child.name}"?\n\nEsta ação é irreversível e removerá todas as tarefas e dados da conta.`)) return;
+    try {
+      await api.delete(`/auth/child/${child.id}`);
+      setSuccess(`Conta de "${child.name}" excluída com sucesso.`);
+      if (selectedChildId === child.id) setSelectedChildId('');
+      loadData();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Erro ao excluir membro.');
+    }
+  };
+
+  const openEditTask = (task) => {
+    setEditTaskData(task);
+    setEditTaskTitle(task.title);
+    setEditTaskDescription(task.description || '');
+    setEditTaskCategory(task.category);
+    setEditTaskDifficulty(task.difficulty);
+    setEditTaskRewardType(task.rewardType);
+    setEditTaskRewardCoins(task.rewardCoins);
+    setEditTaskRewardReal(parseFloat(task.rewardReal));
+    setEditTaskXpReward(task.xpReward);
+    setEditTaskDeadline(task.deadline ? new Date(task.deadline).toISOString().slice(0, 10) : '');
+    setEditTaskIsDaily(task.isDaily ?? true);
+    setError('');
+    setShowEditTask(true);
+  };
+
+  const handleEditTask = async (e) => {
+    e.preventDefault();
+    if (!editTaskData) return;
+    setError('');
+    setLoading(true);
+    try {
+      await api.put(`/tasks/${editTaskData.id}`, {
+        title: editTaskTitle,
+        description: editTaskDescription,
+        category: editTaskCategory,
+        difficulty: editTaskDifficulty,
+        rewardType: editTaskRewardType,
+        rewardCoins: editTaskRewardType === 'REAL_MONEY' ? 0 : editTaskRewardCoins,
+        rewardReal: editTaskRewardType === 'COINS' ? 0 : editTaskRewardReal,
+        xpReward: editTaskXpReward,
+        deadline: editTaskDeadline || null,
+        isDaily: editTaskIsDaily,
+      });
+      setSuccess(`Dever "${editTaskTitle}" atualizado com sucesso!`);
+      setShowEditTask(false);
+      setEditTaskData(null);
+      loadData();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Erro ao atualizar dever.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCreateTask = async (e) => {
     e.preventDefault();
     if (!selectedChildId) {
@@ -144,6 +416,7 @@ export default function ParentDashboard() {
         xpReward: taskXpReward,
         assignedToId: selectedChildId,
         deadline: taskDeadline || null,
+        isDaily: taskIsDaily,
       });
 
       setSuccess('Nova tarefa criada com sucesso!');
@@ -279,7 +552,20 @@ export default function ParentDashboard() {
             <span className="text-xs font-black tracking-wider uppercase text-white">Painel Familiar</span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {/* Show selected child indicator */}
+            {selectedChild && (
+              <button
+                onClick={() => setActiveTab('family')}
+                className="flex items-center gap-1.5 bg-[#a48cb3]/10 border border-[#a48cb3]/30 px-2 py-1 rounded-xl hover:bg-[#a48cb3]/20 transition-all"
+                title="Criança selecionada"
+              >
+                <div className="w-4 h-4 rounded-full bg-[#a48cb3]/30 flex items-center justify-center">
+                  <User className="w-2.5 h-2.5 text-[#a48cb3]" />
+                </div>
+                <span className="text-[9px] font-black text-[#a48cb3] max-w-16 truncate">{selectedChild.name}</span>
+              </button>
+            )}
             <span className="text-[9px] font-bold bg-[#7bc3db]/10 text-[#7bc3db] border border-[#7bc3db]/20 px-2 py-0.5 rounded-lg uppercase">
               Pais
             </span>
@@ -410,9 +696,23 @@ export default function ParentDashboard() {
                   tasks.filter(t => t.status === 'COMPLETED').map((task) => (
                     <div key={task.id} className="p-3.5 rounded-2xl border border-slate-850 bg-slate-950 flex flex-col justify-between gap-3">
                       <div>
-                        <span className="text-[8px] font-bold text-[#e6728a] bg-[#e6728a]/10 px-2 py-0.5 rounded-md">
-                          {task.category} • {task.assignedTo?.name}
-                        </span>
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="text-[8px] font-bold text-[#e6728a] bg-[#e6728a]/10 px-2 py-0.5 rounded-md">
+                            {task.category} • {task.assignedTo?.name}
+                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {task.isDaily && (
+                              <span className="text-[7px] font-black px-1.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 uppercase tracking-wide">
+                                ↻ Múltipl
+                              </span>
+                            )}
+                            {task.completedAt && (
+                              <span className="text-[8px] font-bold text-slate-400 bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded-md">
+                                ⏰ {new Date(task.completedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                         <h4 className="text-xs font-bold text-white mt-1.5">{task.title}</h4>
                         <p className="text-[9px] text-slate-500 mt-1 flex items-center gap-2">
                           <span>Recompensa:</span>
@@ -486,59 +786,353 @@ export default function ParentDashboard() {
           )}
 
           {/* TAB 3: CHORES MANAGEMENT */}
-          {activeTab === 'tasks' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider">
-                  Gerenciamento de Tarefas
-                </h3>
-                <button
-                  onClick={() => setShowCreateTask(true)}
-                  className="bg-[#25cca7] hover:bg-[#1fb393] text-slate-950 font-black py-1.5 px-3 rounded-xl text-[10px] flex items-center gap-1 shadow-sm"
-                >
-                  <Plus className="w-3 h-3" /> Criar dever
-                </button>
-              </div>
+          {activeTab === 'tasks' && (() => {
+            const childTasks = tasks.filter(t => t.assignedToId === selectedChildId);
+            const filteredTasks = childTasks.filter((task) => {
+              if (taskViewMode === 'all') {
+                return !(task.isDaily && task.status === 'APPROVED');
+              }
+              if (task.isDaily) {
+                return !(task.status === 'APPROVED' && !isSameDay(task.approvedAt, selectedDate));
+              }
+              if (task.deadline) {
+                return isSameDay(task.deadline, selectedDate);
+              }
+              return isSameDay(task.createdAt, selectedDate);
+            });
 
-              {tasks.length === 0 ? (
-                <div className="bg-slate-950 border border-slate-850 rounded-2xl p-6 text-center">
-                  <p className="text-xs text-slate-500">Nenhuma tarefa criada.</p>
+            // Group tasks by title for repeating instances
+            const groupedTasks = [];
+            const dailyGroups = {};
+
+            filteredTasks.forEach(task => {
+              if (task.isDaily) {
+                const key = `${task.title}-${task.category}`;
+                if (!dailyGroups[key]) {
+                  dailyGroups[key] = {
+                    title: task.title,
+                    description: task.description,
+                    category: task.category,
+                    difficulty: task.difficulty,
+                    isDaily: true,
+                    rewardType: task.rewardType,
+                    rewardCoins: task.rewardCoins,
+                    rewardReal: task.rewardReal,
+                    xpReward: task.xpReward,
+                    instances: [task]
+                  };
+                } else {
+                  dailyGroups[key].instances.push(task);
+                }
+              } else {
+                groupedTasks.push({
+                  ...task,
+                  instances: [task]
+                });
+              }
+            });
+
+            Object.values(dailyGroups).forEach(group => {
+              groupedTasks.push(group);
+            });
+
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider">
+                    Gerenciamento de Tarefas
+                  </h3>
+                  <button
+                    onClick={() => setShowCreateTask(true)}
+                    className="bg-[#25cca7] hover:bg-[#1fb393] text-slate-955 font-black py-1.5 px-3 rounded-xl text-[10px] flex items-center gap-1 shadow-sm"
+                  >
+                    <Plus className="w-3 h-3" /> Criar dever
+                  </button>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  {tasks.map((task) => (
-                    <div key={task.id} className="bg-slate-950 border border-slate-850 rounded-2xl p-3.5 flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[8px] font-bold px-2 py-0.5 rounded-md ${
-                            task.status === 'APPROVED' ? 'bg-[#76c043]/10 text-[#76c043] border border-[#76c043]/20' :
-                            task.status === 'COMPLETED' ? 'bg-[#fef01e]/10 text-[#fef01e] border border-[#fef01e]/20' :
-                            task.status === 'REJECTED' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-slate-900 text-slate-500'
-                          }`}>
-                            {task.status === 'APPROVED' ? 'OK' :
-                             task.status === 'COMPLETED' ? 'PENDENTE' :
-                             task.status === 'REJECTED' ? 'CORRIGIR' : 'ATIVO'}
-                          </span>
-                          <span className="text-[9px] text-slate-500 font-bold uppercase">{task.category}</span>
-                        </div>
-                        <h4 className="text-xs font-bold text-white truncate mt-1.5">{task.title}</h4>
-                        <p className="text-[9px] text-slate-500 mt-0.5 truncate">
-                          Para: {task.assignedTo?.name} | Recompensa: {task.rewardType === 'REAL_MONEY' ? `R$ ${parseFloat(task.rewardReal).toFixed(2)}` : task.rewardType === 'COINS' ? `${task.rewardCoins} Moedas` : `${task.rewardCoins} Moedas + R$ ${parseFloat(task.rewardReal).toFixed(2)}`}
-                        </p>
-                      </div>
 
-                      <button
-                        onClick={() => handleDeleteTask(task.id)}
-                        className="text-red-400 hover:text-red-300 p-1.5 rounded-lg hover:bg-red-950/20 transition-colors shrink-0"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                {/* Calendar switch selectors */}
+                <div className="flex bg-slate-950 p-1 rounded-2xl border border-slate-850">
+                  {[
+                    { mode: 'weekly', label: 'Agenda Semanal' },
+                    { mode: 'monthly', label: 'Calendário Mensal' },
+                    { mode: 'all', label: 'Ver Tudo' }
+                  ].map((item) => (
+                    <button
+                      key={item.mode}
+                      type="button"
+                      onClick={() => setTaskViewMode(item.mode)}
+                      className={`flex-1 py-2.5 rounded-xl text-[10px] font-black transition-all active:scale-98 ${
+                        taskViewMode === item.mode 
+                          ? 'bg-slate-900 text-white shadow-xs border border-slate-800' 
+                          : 'text-slate-500 hover:text-slate-350'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
                   ))}
                 </div>
-              )}
-            </div>
-          )}
+
+                {/* Weekly Agenda Navigation */}
+                {taskViewMode === 'weekly' && (
+                  <div className="bg-slate-950 border border-slate-850 rounded-3xl p-4.5 space-y-4 shadow-inner">
+                    <div className="flex items-center justify-between px-1">
+                      <button
+                        type="button"
+                        onClick={handlePrevWeek}
+                        className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors active:scale-90"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs font-black text-white uppercase tracking-wider">
+                        {getMonthName(currentWeekStart)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleNextWeek}
+                        className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors active:scale-90"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="flex gap-2">
+                      {getWeekDays(currentWeekStart).map((day, index) => {
+                        const isSelected = isSameDay(day, selectedDate);
+                        const isTodayDate = isSameDay(day, new Date());
+                        const dayNumber = String(day.getDate()).padStart(2, '0');
+                        const weekday = getWeekdayName(day);
+                        return (
+                          <button
+                            key={index}
+                            type="button"
+                            onClick={() => setSelectedDate(day)}
+                            className={`flex-1 py-3.5 px-1 rounded-2xl flex flex-col items-center justify-center transition-all border ${
+                              isSelected 
+                                ? 'bg-indigo-600 border-indigo-600 text-white font-black shadow-[0_0_15px_rgba(79,70,229,0.35)]' 
+                                : isTodayDate
+                                  ? 'bg-slate-900 border-indigo-500/50 text-indigo-400 font-bold'
+                                  : 'bg-slate-900/40 border-slate-850 text-slate-400 hover:border-slate-700'
+                            }`}
+                          >
+                            <span className="text-[9px] font-bold uppercase tracking-wider">{weekday}</span>
+                            <span className="text-sm font-black mt-1.5">{dayNumber}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Monthly Calendar Navigation */}
+                {taskViewMode === 'monthly' && (
+                  <div className="bg-slate-950 border border-slate-850 rounded-3xl p-4.5 space-y-4 shadow-inner">
+                    <div className="flex items-center justify-between px-1">
+                      <button
+                        type="button"
+                        onClick={handlePrevMonth}
+                        className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors active:scale-90"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs font-black text-white uppercase tracking-wider">
+                        {getMonthName(currentMonthDate)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleNextMonth}
+                        className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors active:scale-90"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-7 gap-1.5 text-center">
+                      {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((wd, idx) => (
+                        <span key={idx} className="text-[9px] font-black text-slate-500 uppercase">{wd}</span>
+                      ))}
+
+                      {getMonthDays(currentMonthDate).map((dayObj, index) => {
+                        const day = dayObj.date;
+                        const isSelected = isSameDay(day, selectedDate);
+                        const isTodayDate = isSameDay(day, new Date());
+                        const dayNumber = day.getDate();
+                        const { hasApproved, hasCompleted, hasRejected, hasPending } = getDayStatusDots(day);
+
+                        return (
+                          <button
+                            key={index}
+                            type="button"
+                            onClick={() => {
+                              setSelectedDate(day);
+                              setCurrentWeekStart(getSundayOfCurrentWeek(day));
+                            }}
+                            className={`py-2 px-1 rounded-xl flex flex-col items-center justify-center transition-all border relative ${
+                              isSelected 
+                                ? 'bg-indigo-600 border-indigo-600 text-white font-black' 
+                                : isTodayDate
+                                  ? 'bg-slate-900 border-indigo-500/50 text-indigo-400'
+                                  : dayObj.isCurrentMonth
+                                    ? 'bg-slate-900/20 border-slate-850/50 text-slate-300 hover:border-slate-700'
+                                    : 'bg-transparent border-transparent text-slate-600 hover:border-slate-850'
+                            }`}
+                          >
+                            <span className="text-xs font-black">{dayNumber}</span>
+                            
+                            {/* Tiny status indicator dots */}
+                            <div className="flex gap-0.5 mt-0.5 justify-center min-h-[4px]">
+                              {hasApproved && <span className="w-1 h-1 rounded-full bg-[#76c043]" />}
+                              {hasCompleted && <span className="w-1 h-1 rounded-full bg-[#fef01e]" />}
+                              {hasRejected && <span className="w-1 h-1 rounded-full bg-red-500" />}
+                              {hasPending && <span className="w-1 h-1 rounded-full bg-blue-400" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {groupedTasks.length === 0 ? (
+                  <div className="bg-slate-950 border border-slate-850 rounded-2xl p-6 text-center">
+                    <p className="text-xs text-slate-500">Nenhum dever encontrado para este dia.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {groupedTasks.map((task, gIdx) => {
+                      const hasMultiple = task.instances.length > 1 || task.isDaily;
+
+                      if (!hasMultiple) {
+                        // Single chore rendering (Non-repeating)
+                        const inst = task.instances[0];
+                        return (
+                          <div key={inst.id} className="bg-slate-950 border border-slate-855 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-sm hover:border-slate-800 transition-colors">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[8px] font-bold px-2 py-0.5 rounded-md ${
+                                  inst.status === 'APPROVED' ? 'bg-[#76c043]/10 text-[#76c043] border border-[#76c043]/20' :
+                                  inst.status === 'COMPLETED' ? 'bg-[#fef01e]/10 text-[#fef01e] border border-[#fef01e]/20 animate-pulse' :
+                                  inst.status === 'REJECTED' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-slate-900 text-slate-500'
+                                }`}>
+                                  {inst.status === 'APPROVED' ? 'OK' :
+                                   inst.status === 'COMPLETED' ? 'PENDENTE' :
+                                   inst.status === 'REJECTED' ? 'CORRIGIR' : 'ATIVO'}
+                                </span>
+                                <span className="text-[9px] text-slate-500 font-bold uppercase">{inst.category}</span>
+                              </div>
+                              <h4 className="text-xs font-bold text-white truncate mt-1.5">{inst.title}</h4>
+                              <p className="text-[9px] text-slate-500 mt-0.5 truncate">
+                                Para: {inst.assignedTo?.name} | Recompensa: {inst.rewardType === 'REAL_MONEY' ? `R$ ${parseFloat(inst.rewardReal).toFixed(2)}` : inst.rewardType === 'COINS' ? `${inst.rewardCoins} Moedas` : `${inst.rewardCoins} Moedas + R$ ${parseFloat(inst.rewardReal).toFixed(2)}`}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {(inst.status === 'PENDING' || inst.status === 'REJECTED') && (
+                                <button
+                                  onClick={() => openEditTask(inst)}
+                                  className="text-slate-400 hover:text-indigo-400 p-1.5 rounded-xl hover:bg-indigo-950/20 transition-all shrink-0"
+                                  title="Editar dever"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              {inst.status === 'COMPLETED' && (
+                                <div className="flex gap-1">
+                                  <button onClick={() => handleRejectTask(inst.id)} className="bg-red-950/20 text-red-400 border border-red-900/20 p-1.5 rounded-xl hover:bg-red-900/20 active:scale-95 transition-all" title="Rejeitar">
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button onClick={() => handleApproveTask(inst.id)} className="bg-[#76c043] text-slate-950 p-1.5 rounded-xl hover:bg-[#609d34] active:scale-95 transition-all" title="Aprovar">
+                                    <Check className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                              {(inst.status === 'PENDING' || inst.status === 'REJECTED') && (
+                                <button
+                                  onClick={() => handleDeleteTask(inst.id)}
+                                  className="text-red-400 hover:text-red-300 p-1.5 rounded-xl hover:bg-red-950/20 transition-all shrink-0"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Repeating Chores rendering (daily or has multiple completions)
+                      return (
+                        <div key={gIdx} className="bg-slate-950 border border-slate-855 rounded-2xl p-3.5 space-y-3 shadow-sm hover:border-slate-800 transition-colors">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[8px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                                  REPETITIVO
+                                </span>
+                                <span className="text-[9px] text-slate-500 font-bold uppercase">{task.category}</span>
+                              </div>
+                              <h4 className="text-xs font-bold text-white mt-1.5">{task.title}</h4>
+                              {task.description && <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">{task.description}</p>}
+                            </div>
+                            {/* Edit repeating task header */}
+                            <button
+                              onClick={() => openEditTask(task.instances[0])}
+                              className="p-1.5 rounded-xl text-slate-500 hover:text-indigo-400 hover:bg-indigo-950/20 transition-all shrink-0"
+                              title="Editar dever"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="border-t border-slate-900 pt-2.5 space-y-2">
+                            {task.instances.map((inst, index) => (
+                              <div key={inst.id || index} className="flex items-center justify-between text-xs py-1.5 px-3 bg-slate-900/40 rounded-xl border border-slate-850/40">
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-[10px] text-slate-400 font-black">
+                                    Repetição #${index + 1}
+                                  </span>
+                                  <span className="ml-2 text-[9px] text-slate-500">
+                                    {inst.rewardType === 'REAL_MONEY' ? `R$ &nbsp;${parseFloat(inst.rewardReal).toFixed(2)}` : inst.rewardType === 'COINS' ? `${inst.rewardCoins} Moedas` : `${inst.rewardCoins} Moedas + R$ ${parseFloat(inst.rewardReal).toFixed(2)}`}
+                                  </span>
+                                </div>
+                                
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-md ${
+                                    inst.status === 'APPROVED' ? 'bg-[#76c043]/10 text-[#76c043] border border-[#76c043]/20' :
+                                    inst.status === 'COMPLETED' ? 'bg-[#fef01e]/10 text-[#fef01e] border border-[#fef01e]/20 animate-pulse' :
+                                    inst.status === 'REJECTED' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-slate-850 text-slate-500'
+                                  }`}>
+                                    {inst.status === 'APPROVED' ? 'OK' :
+                                     inst.status === 'COMPLETED' ? 'PENDENTE' :
+                                     inst.status === 'REJECTED' ? 'CORRIGIR' : 'ATIVO'}
+                                  </span>
+                                  
+                                  {inst.status === 'COMPLETED' && (
+                                    <div className="flex gap-1">
+                                      <button onClick={() => handleRejectTask(inst.id)} className="bg-red-950/20 text-red-400 border border-red-900/20 p-1 rounded-lg hover:bg-red-900/20" title="Rejeitar">
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                      <button onClick={() => handleApproveTask(inst.id)} className="bg-[#76c043] text-slate-950 p-1 rounded-lg hover:bg-[#609d34]" title="Aprovar">
+                                        <Check className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  )}
+                                  
+                                  {(inst.status === 'PENDING' || inst.status === 'REJECTED') && (
+                                    <button onClick={() => handleDeleteTask(inst.id)} className="text-red-400 hover:text-red-350 p-1 rounded-lg hover:bg-red-950/10" title="Deletar">
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* TAB 4: FAMILY DEPENDENTS & SAVINGS */}
           {activeTab === 'family' && (
@@ -559,29 +1153,79 @@ export default function ParentDashboard() {
                 </div>
 
                 <div className="space-y-2">
+                  {children.length === 0 && (
+                    <p className="text-[10px] text-slate-500 text-center py-6 bg-slate-950 border border-slate-850 rounded-2xl">
+                      Nenhum membro cadastrado ainda.
+                    </p>
+                  )}
                   {children.map((child) => {
                     const isSelected = child.id === selectedChildId;
+                    const initials = child.name?.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+                    const childColors = ['#a48cb3','#7bc3db','#76c043','#fca570','#e6728a','#25cca7'];
+                    const colorIdx = child.id?.charCodeAt(0) % childColors.length || 0;
+                    const avatarColor = childColors[colorIdx];
                     return (
                       <div
                         key={child.id}
                         onClick={() => setSelectedChildId(child.id)}
-                        className={`p-3 rounded-2xl border cursor-pointer transition-all flex items-center justify-between bg-slate-950 ${
-                          isSelected ? 'border-[#a48cb3]' : 'border-slate-850'
+                        className={`p-3 rounded-2xl border cursor-pointer transition-all duration-200 flex items-center justify-between ${
+                          isSelected
+                            ? 'bg-[#a48cb3]/8 border-[#a48cb3] shadow-[0_0_18px_rgba(164,140,179,0.18)]'
+                            : 'bg-slate-950 border-slate-850 hover:border-slate-700 hover:bg-slate-900/60'
                         }`}
                       >
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-lg bg-slate-900 border border-slate-850 flex items-center justify-center text-[10px] font-bold text-slate-300">
-                            Lvl {child.level}
+                        <div className="flex items-center gap-3">
+                          {/* Avatar circle */}
+                          <div
+                            className="w-10 h-10 rounded-2xl flex items-center justify-center text-xs font-black flex-shrink-0 transition-all"
+                            style={{
+                              background: isSelected ? `${avatarColor}22` : '#1e293b',
+                              border: `2px solid ${isSelected ? avatarColor : '#334155'}`,
+                              color: avatarColor
+                            }}
+                          >
+                            {initials}
                           </div>
                           <div>
-                            <h4 className="text-xs font-bold text-white">{child.name}</h4>
-                            <p className="text-[9px] text-slate-500">XP: {child.xp} • Streak: {child.streak} Dias</p>
+                            <div className="flex items-center gap-1.5">
+                              <h4 className="text-xs font-bold text-white">{child.name}</h4>
+                              {isSelected && (
+                                <span className="text-[7px] font-black px-1.5 py-0.5 rounded-md bg-[#a48cb3]/20 text-[#a48cb3] border border-[#a48cb3]/30 uppercase tracking-wide">
+                                  Ativo
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[9px] text-slate-500">
+                              {child.role === 'CHILD' ? `Nível ${child.level || 1} • XP ${child.xp || 0}` : 'Responsável'}
+                            </p>
                           </div>
                         </div>
 
-                        <div className="text-right">
-                          <div className="text-[10px] font-black text-[#fef01e]">🪙 {child.wallet?.balanceCoins || 0}</div>
-                          <div className="text-[9px] font-bold text-[#25cca7]">R$ {parseFloat(child.wallet?.balanceReal || 0).toFixed(2)}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="text-right">
+                            {child.role === 'CHILD' && (
+                              <>
+                                <div className="text-[10px] font-black text-[#fef01e]">🪙 {child.wallet?.balanceCoins || 0}</div>
+                                <div className="text-[9px] font-bold text-[#25cca7]">R$ {parseFloat(child.wallet?.balanceReal || 0).toFixed(2)}</div>
+                              </>
+                            )}
+                          </div>
+                          {/* Edit button */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openEditChild(child); }}
+                            className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-indigo-400 hover:border-indigo-800/50 hover:bg-indigo-950/20 transition-all"
+                            title="Editar"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          {/* Delete button */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteChild(child); }}
+                            className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-red-400 hover:border-red-900/50 hover:bg-red-950/20 transition-all"
+                            title="Excluir membro"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
                     );
@@ -829,6 +1473,24 @@ export default function ParentDashboard() {
                 </div>
               </div>
 
+              {/* isDaily toggle */}
+              <div
+                onClick={() => setTaskIsDaily(v => !v)}
+                className={`flex items-center justify-between p-3 rounded-2xl border cursor-pointer transition-all ${
+                  taskIsDaily ? 'bg-indigo-600/10 border-indigo-600/40' : 'bg-slate-950 border-slate-800'
+                }`}
+              >
+                <div>
+                  <p className="text-xs font-bold text-white">Pode ser feita mais de uma vez por dia</p>
+                  <p className="text-[9px] text-slate-500 mt-0.5">A criança pode enviar para aprovação várias vezes no mesmo dia</p>
+                </div>
+                <div className={`w-10 h-5 rounded-full transition-all flex items-center px-0.5 ${
+                  taskIsDaily ? 'bg-indigo-600 justify-end' : 'bg-slate-700 justify-start'
+                }`}>
+                  <div className="w-4 h-4 rounded-full bg-white shadow" />
+                </div>
+              </div>
+
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
@@ -1026,6 +1688,228 @@ export default function ParentDashboard() {
                   className="flex-1 py-2.5 rounded-xl text-xs font-black text-slate-950 bg-[#25cca7] hover:bg-[#1fb393] shadow-lg"
                 >
                   Cadastrar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT CHILD/MEMBER MODAL */}
+      {showEditChild && editChildData && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+          <div className="bg-slate-900 border-t sm:border border-slate-800 rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Edit3 className="w-5 h-5 text-indigo-400" />
+              <h3 className="text-base font-bold text-white">Editar Membro</h3>
+            </div>
+            <p className="text-[11px] text-slate-500">Altere o nome, e-mail ou senha de <strong className="text-slate-300">{editChildData.name}</strong>.</p>
+
+            {error && (
+              <div className="bg-red-950/40 text-red-400 border border-red-900/30 p-2.5 rounded-xl text-[10px] font-bold mt-3">
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleEditChild} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nome</label>
+                <div className="relative mt-1">
+                  <User className="absolute left-3 top-3 w-4 h-4 text-slate-500" />
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="Nome completo"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-indigo-700"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">E-mail de Login</label>
+                <div className="relative mt-1">
+                  <Mail className="absolute left-3 top-3 w-4 h-4 text-slate-500" />
+                  <input
+                    type="email"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    placeholder="email@exemplo.com"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-indigo-700"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Nova Senha <span className="text-slate-600 normal-case font-normal">(deixe vazio para manter)</span>
+                </label>
+                <div className="relative mt-1">
+                  <Key className="absolute left-3 top-3 w-4 h-4 text-slate-500" />
+                  <input
+                    type="password"
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    placeholder="Nova senha (opcional)"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-indigo-700"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => { setShowEditChild(false); setError(''); }}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-400 bg-slate-850 hover:bg-slate-800 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-black text-slate-950 bg-[#a48cb3] hover:bg-[#9276a5] shadow-lg disabled:opacity-60 transition-colors"
+                >
+                  {loading ? 'Salvando...' : 'Salvar Alterações'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT TASK MODAL */}
+      {showEditTask && editTaskData && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+          <div className="bg-slate-900 border-t sm:border border-slate-800 rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-sm shadow-2xl max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Edit3 className="w-5 h-5 text-indigo-400" />
+              <h3 className="text-base font-bold text-white">Editar Dever</h3>
+            </div>
+            <p className="text-[11px] text-slate-500">Altere os dados do dever <strong className="text-slate-300">{editTaskData.title}</strong>.</p>
+
+            {error && (
+              <div className="bg-red-950/40 text-red-400 border border-red-900/30 p-2.5 rounded-xl text-[10px] font-bold mt-3">{error}</div>
+            )}
+
+            <form onSubmit={handleEditTask} className="mt-4 space-y-3">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Título do Dever</label>
+                <input
+                  type="text"
+                  value={editTaskTitle}
+                  onChange={(e) => setEditTaskTitle(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-4 text-xs mt-1 text-white focus:outline-none focus:border-indigo-700"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Descrição (Opcional)</label>
+                <textarea
+                  value={editTaskDescription}
+                  onChange={(e) => setEditTaskDescription(e.target.value)}
+                  rows={2}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-4 text-xs mt-1 text-white focus:outline-none focus:border-indigo-700"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Categoria</label>
+                  <select value={editTaskCategory} onChange={(e) => setEditTaskCategory(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs mt-1 text-white">
+                    <option value="Organização">Organização</option>
+                    <option value="Estudos">Estudos</option>
+                    <option value="Leitura">Leitura</option>
+                    <option value="Higiene">Higiene</option>
+                    <option value="Responsabilidade">Responsabilidade</option>
+                    <option value="Atividades físicas">Atividades físicas</option>
+                    <option value="Tarefas domésticas">Tarefas domésticas</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Dificuldade</label>
+                  <select value={editTaskDifficulty} onChange={(e) => setEditTaskDifficulty(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs mt-1 text-white">
+                    <option value="Fácil">Fácil</option>
+                    <option value="Médio">Médio</option>
+                    <option value="Difícil">Difícil</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tipo de Recompensa</label>
+                <div className="grid grid-cols-3 gap-1.5 mt-1">
+                  {[{v:'COINS',l:'Moedas'},{v:'REAL_MONEY',l:'Dinheiro'},{v:'BOTH',l:'Ambos'}].map(opt => (
+                    <button key={opt.v} type="button" onClick={() => setEditTaskRewardType(opt.v)}
+                      className={`py-1.5 rounded-xl text-[10px] font-bold border transition-all ${
+                        editTaskRewardType === opt.v ? 'bg-indigo-600/20 border-indigo-600 text-indigo-300' : 'border-slate-800 text-slate-500 bg-slate-950'
+                      }`}>{opt.l}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {editTaskRewardType !== 'REAL_MONEY' && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Moedas 🪙</label>
+                    <input type="number" min="0" value={editTaskRewardCoins}
+                      onChange={(e) => setEditTaskRewardCoins(parseInt(e.target.value))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs mt-1 text-white" />
+                  </div>
+                )}
+                {editTaskRewardType !== 'COINS' && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">R$</label>
+                    <input type="number" step="0.50" min="0" value={editTaskRewardReal}
+                      onChange={(e) => setEditTaskRewardReal(parseFloat(e.target.value))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs mt-1 text-white" />
+                  </div>
+                )}
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">XP</label>
+                  <input type="number" min="0" value={editTaskXpReward}
+                    onChange={(e) => setEditTaskXpReward(parseInt(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs mt-1 text-white" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Prazo (Opcional)</label>
+                <input type="date" value={editTaskDeadline}
+                  onChange={(e) => setEditTaskDeadline(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs mt-1 text-white" />
+              </div>
+
+              {/* isDaily toggle */}
+              <div
+                onClick={() => setEditTaskIsDaily(v => !v)}
+                className={`flex items-center justify-between p-3 rounded-2xl border cursor-pointer transition-all ${
+                  editTaskIsDaily ? 'bg-indigo-600/10 border-indigo-600/40' : 'bg-slate-950 border-slate-800'
+                }`}
+              >
+                <div>
+                  <p className="text-xs font-bold text-white">Pode ser feita mais de uma vez por dia</p>
+                  <p className="text-[9px] text-slate-500 mt-0.5">A criança pode enviar para aprovação várias vezes no mesmo dia</p>
+                </div>
+                <div className={`w-10 h-5 rounded-full transition-all flex items-center px-0.5 ${
+                  editTaskIsDaily ? 'bg-indigo-600 justify-end' : 'bg-slate-700 justify-start'
+                }`}>
+                  <div className="w-4 h-4 rounded-full bg-white shadow" />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => { setShowEditTask(false); setError(''); }}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-400 bg-slate-850 hover:bg-slate-800 transition-colors">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={loading}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-black text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg disabled:opacity-60 transition-colors">
+                  {loading ? 'Salvando...' : 'Salvar Alterações'}
                 </button>
               </div>
             </form>

@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+﻿import { Router, Response } from 'express';
 import prisma from '../utils/db';
 import { authenticateToken, requireParent, requireChild } from '../middleware/auth';
 import { AuthenticatedRequest } from '../types';
@@ -115,6 +115,7 @@ router.post('/', authenticateToken, requireParent, async (req: AuthenticatedRequ
     xpReward = 10,
     assignedToId,
     deadline,
+    isDaily = true,
   } = req.body;
   const parentId = req.user?.id;
 
@@ -137,6 +138,7 @@ router.post('/', authenticateToken, requireParent, async (req: AuthenticatedRequ
         createdById: parentId,
         deadline: deadline ? new Date(deadline) : null,
         status: 'PENDING',
+        isDaily: isDaily === true || isDaily === 'true',
       },
     });
 
@@ -168,7 +170,7 @@ router.post('/', authenticateToken, requireParent, async (req: AuthenticatedRequ
  */
 router.put('/:id', authenticateToken, requireParent, async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
-  const { title, description, category, difficulty, rewardType, rewardCoins, rewardReal, xpReward, deadline } = req.body;
+  const { title, description, category, difficulty, rewardType, rewardCoins, rewardReal, xpReward, deadline, isDaily } = req.body;
 
   try {
     const existingTask = await prisma.task.findUnique({ where: { id } });
@@ -188,6 +190,7 @@ router.put('/:id', authenticateToken, requireParent, async (req: AuthenticatedRe
         rewardReal: rewardReal !== undefined ? parseFloat(rewardReal.toString()) : existingTask.rewardReal,
         xpReward: xpReward !== undefined ? parseInt(xpReward.toString()) : existingTask.xpReward,
         deadline: deadline !== undefined ? (deadline ? new Date(deadline) : null) : existingTask.deadline,
+        isDaily: isDaily !== undefined ? (isDaily === true || isDaily === 'true') : existingTask.isDaily,
       },
     });
 
@@ -249,8 +252,43 @@ router.post('/:id/complete', authenticateToken, requireChild, async (req: Authen
       return res.status(403).json({ error: 'Você só pode concluir tarefas atribuídas a você.' });
     }
 
-    if (task.status === 'COMPLETED' || task.status === 'APPROVED') {
-      return res.status(400).json({ error: 'Esta tarefa já foi concluída ou aprovada.' });
+    if (task.status === 'APPROVED') {
+      return res.status(400).json({ error: 'Esta tarefa já foi aprovada.' });
+    }
+
+    // isDaily + COMPLETED: cria clone para nova submissão do dia
+    if (task.isDaily && task.status === 'COMPLETED') {
+      const clone = await prisma.task.create({
+        data: {
+          title: task.title,
+          description: task.description,
+          category: task.category,
+          difficulty: task.difficulty,
+          status: 'COMPLETED',
+          isDaily: true,
+          rewardType: task.rewardType,
+          rewardCoins: task.rewardCoins,
+          rewardReal: task.rewardReal,
+          xpReward: task.xpReward,
+          completedAt: new Date(),
+          createdById: task.createdById,
+          assignedToId: task.assignedToId,
+          deadline: task.deadline,
+        },
+      });
+
+      const parentId = task.createdById;
+      const cloneNotif = await prisma.notification.create({
+        data: {
+          userId: parentId,
+          message: task.assignedTo.name + ' fez a tarefa novamente: ' + task.title + '. Clique para aprovar!',
+        },
+      });
+
+      sendRealTimeNotification(parentId, 'notification', cloneNotif);
+      sendRealTimeNotification(parentId, 'task_completed', clone);
+
+      return res.json({ message: 'Ótimo! Nova entrega registrada para aprovação.', task: clone });
     }
 
     const updatedTask = await prisma.task.update({
@@ -309,18 +347,52 @@ router.post('/:id/approve', authenticateToken, requireParent, async (req: Authen
       return res.status(400).json({ error: 'Esta tarefa ainda não foi marcada como concluída pela criança.' });
     }
 
-    // 1. Update task status
-    const updatedTask = await prisma.task.update({
-      where: { id },
-      data: {
-        status: 'APPROVED',
-        approvedAt: new Date(),
-      },
-    });
+    let updatedTask;
+    if (task.isDaily) {
+      // 1. Clone/duplicate the task in the database as an APPROVED history record
+      await prisma.task.create({
+        data: {
+          title: task.title,
+          description: task.description,
+          category: task.category,
+          difficulty: task.difficulty,
+          status: 'APPROVED',
+          isDaily: true,
+          rewardType: task.rewardType,
+          rewardCoins: task.rewardCoins,
+          rewardReal: task.rewardReal,
+          xpReward: task.xpReward,
+          completedAt: task.completedAt || new Date(),
+          approvedAt: new Date(),
+          createdById: task.createdById,
+          assignedToId: task.assignedToId,
+          deadline: task.deadline,
+        },
+      });
+
+      // 2. Reset the original active task's status to PENDING immediately
+      updatedTask = await prisma.task.update({
+        where: { id },
+        data: {
+          status: 'PENDING',
+          completedAt: null,
+          approvedAt: null,
+        },
+      });
+    } else {
+      // One-off task: just update the original task status to APPROVED directly
+      updatedTask = await prisma.task.update({
+        where: { id },
+        data: {
+          status: 'APPROVED',
+          approvedAt: new Date(),
+        },
+      });
+    }
 
     const childId = task.assignedToId;
 
-    // 2. Update child's wallet
+    // 3. Update child's wallet
     const wallet = await prisma.wallet.findUnique({ where: { userId: childId } });
     if (wallet) {
       await prisma.wallet.update({
@@ -334,12 +406,12 @@ router.post('/:id/approve', authenticateToken, requireParent, async (req: Authen
       });
     }
 
-    // 3. Update gamification: add XP and update streaks
+    // 4. Update gamification: add XP and update streaks (will query APPROVED task clones correctly)
     await addXpToChild(childId, task.xpReward);
     await updateStreak(childId);
     await checkAndUnlockAchievements(childId);
 
-    // 4. Create and send notifications
+    // 5. Create and send notifications
     const childNotifMessage = `🎉 Parabéns! Sua tarefa "${task.title}" foi aprovada! Você ganhou +${task.rewardCoins} moedas, R$ ${task.rewardReal.toFixed(2)} e +${task.xpReward} XP!`;
     const notification = await prisma.notification.create({
       data: {

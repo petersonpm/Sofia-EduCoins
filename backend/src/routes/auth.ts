@@ -362,4 +362,112 @@ router.get('/me', authenticateToken, async (req: AuthenticatedRequest, res: Resp
   }
 });
 
+/**
+ * @openapi
+ * /api/auth/child/{id}:
+ *   put:
+ *     summary: Atualiza os dados de uma criança (Apenas Responsáveis)
+ *     tags: [Autenticação]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.put('/child/:id', authenticateToken, requireParent, async (req: AuthenticatedRequest, res: Response) => {
+  const childId = req.params.id;
+  const parentId = req.user?.parentId || req.user?.id;
+  const { name, email, password } = req.body;
+
+  try {
+    // Verify that the child exists and belongs to this parent
+    const child = await prisma.user.findFirst({
+      where: { id: childId, parentId, role: 'CHILD' }
+    });
+
+    if (!child) {
+      return res.status(404).json({ error: 'Criança não encontrada ou não pertence a esta família.' });
+    }
+
+    // If email is changing, check if it's already taken
+    if (email && email !== child.email) {
+      const existingUser = await prisma.user.findUnique({ where: { email } });
+      if (existingUser) {
+        return res.status(400).json({ error: 'Este e-mail de login já está em uso.' });
+      }
+    }
+
+    const updateData: any = {};
+    if (name) updateData.name = name;
+    if (email) updateData.email = email;
+    if (password) {
+      updateData.password = await bcrypt.hash(password, 10);
+    }
+
+    const updatedChild = await prisma.user.update({
+      where: { id: childId },
+      data: updateData,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        xp: true,
+        level: true,
+        avatarConfig: true
+      }
+    });
+
+    return res.status(200).json({
+      message: 'Dados da criança atualizados com sucesso!',
+      child: updatedChild
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @openapi
+ * /api/auth/child/{id}:
+ *   delete:
+ *     summary: Exclui a conta de uma criança (Apenas Responsáveis)
+ *     tags: [Autenticação]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.delete('/child/:id', authenticateToken, requireParent, async (req: AuthenticatedRequest, res: Response) => {
+  const childId = req.params.id;
+  const parentId = req.user?.parentId || req.user?.id;
+
+  try {
+    // Verify that the child exists and belongs to this parent
+    const child = await prisma.user.findFirst({
+      where: { id: childId, parentId, role: 'CHILD' }
+    });
+
+    if (!child) {
+      return res.status(404).json({ error: 'Criança não encontrada ou não pertence a esta família.' });
+    }
+
+    // 1. Manually delete tasks assigned to the child (avoid FK block)
+    await prisma.task.deleteMany({
+      where: {
+        OR: [
+          { assignedToId: childId },
+          { createdById: childId }
+        ]
+      }
+    });
+
+    // 2. Delete child user (Prisma cascade onDelete deletes wallet, goals, expenses, achievements, notifications)
+    await prisma.user.delete({
+      where: { id: childId }
+    });
+
+    return res.status(200).json({
+      message: 'Conta da criança excluída com sucesso!'
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

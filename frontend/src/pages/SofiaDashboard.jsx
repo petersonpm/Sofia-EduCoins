@@ -9,12 +9,107 @@ import {
   Award, Flame, Sparkles, LogOut, Store, Bell, CheckCircle2, 
   AlertCircle, Trophy, Target, ClipboardList, PiggyBank, 
   Coins, ArrowRight, BookOpen, Home, Activity, Heart, Shield,
-  ChevronRight, ShoppingBag, Plus, Lock, DollarSign
+  ChevronRight, ChevronLeft, Calendar, ShoppingBag, Plus, Lock, DollarSign
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export default function SofiaDashboard() {
   const { user, logout, refreshUser } = { ...useAuth() };
+
+  // Helpers de Data para Agenda
+  const getSundayOfCurrentWeek = (date = new Date()) => {
+    const today = new Date(date);
+    const day = today.getDay(); // 0: Dom, 1: Seg, etc.
+    const sunday = new Date(today);
+    sunday.setDate(today.getDate() - day);
+    return sunday;
+  };
+
+  const isSameDay = (d1, d2) => {
+    if (!d1 || !d2) return false;
+    const date1 = new Date(d1);
+    const date2 = new Date(d2);
+    return (
+      date1.getDate() === date2.getDate() &&
+      date1.getMonth() === date2.getMonth() &&
+      date1.getFullYear() === date2.getFullYear()
+    );
+  };
+
+  const getMonthName = (date) => {
+    const months = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return `${months[date.getMonth()]} de ${date.getFullYear()}`;
+  };
+
+  const getWeekdayName = (date) => {
+    const weekdays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+    return weekdays[date.getDay()];
+  };
+
+  // Agenda / Calendário States
+  const [taskViewMode, setTaskViewMode] = useState('weekly'); // 'weekly', 'monthly', 'all'
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [currentWeekStart, setCurrentWeekStart] = useState(getSundayOfCurrentWeek());
+  const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
+
+  const handlePrevMonth = () => {
+    const newDate = new Date(currentMonthDate);
+    newDate.setMonth(newDate.getMonth() - 1);
+    setCurrentMonthDate(newDate);
+  };
+
+  const handleNextMonth = () => {
+    const newDate = new Date(currentMonthDate);
+    newDate.setMonth(newDate.getMonth() + 1);
+    setCurrentMonthDate(newDate);
+  };
+
+  const getDayStatusDots = (day) => {
+    const dayFiltered = tasks.filter(task => {
+      if (task.isDaily) {
+        return (task.status === 'APPROVED' && isSameDay(task.approvedAt, day)) ||
+               (task.status !== 'APPROVED' && isSameDay(selectedDate, day));
+      }
+      if (task.deadline) {
+        return isSameDay(task.deadline, day);
+      }
+      return isSameDay(task.createdAt, day);
+    });
+    
+    const hasApproved = dayFiltered.some(t => t.status === 'APPROVED');
+    const hasCompleted = dayFiltered.some(t => t.status === 'COMPLETED');
+    const hasRejected = dayFiltered.some(t => t.status === 'REJECTED');
+    const hasPending = dayFiltered.some(t => t.status === 'PENDING');
+    
+    return { hasApproved, hasCompleted, hasRejected, hasPending };
+  };
+
+  const handlePrevWeek = () => {
+    const newDate = new Date(currentWeekStart);
+    newDate.setDate(newDate.getDate() - 7);
+    setCurrentWeekStart(newDate);
+    setSelectedDate(newDate);
+  };
+
+  const handleNextWeek = () => {
+    const newDate = new Date(currentWeekStart);
+    newDate.setDate(newDate.getDate() + 7);
+    setCurrentWeekStart(newDate);
+    setSelectedDate(newDate);
+  };
+
+  const getWeekDays = () => {
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(currentWeekStart);
+      d.setDate(currentWeekStart.getDate() + i);
+      days.push(d);
+    }
+    return days;
+  };
 
   // Bottom Navigation tabs: 'tasks', 'goals', 'shop', 'medals'
   const [activeTab, setActiveTab] = useState('tasks');
@@ -120,17 +215,21 @@ export default function SofiaDashboard() {
 
   // Actions: Complete Task
   const handleCompleteTask = async (taskId) => {
+    // Optimistic UI Update: immediately mark task as completed locally for sub-10ms response time
+    const originalTasks = [...tasks];
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'COMPLETED', completedAt: new Date().toISOString() } : t));
+    
+    // Play sound and throw confetti instantly for maximum gamified excitement!
+    playSuccessSound();
+    confetti({ particleCount: 40, spread: 40, origin: { y: 0.8 } });
+
     try {
-      setLoading(true);
       await api.post(`/tasks/${taskId}/complete`);
-      playSuccessSound();
-      confetti({ particleCount: 40, spread: 40, origin: { y: 0.8 } });
       loadData();
     } catch (err) {
       playBuzzerSound();
+      setTasks(originalTasks);
       console.error(err);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -449,120 +548,342 @@ export default function SofiaDashboard() {
               </div>
             </section>
           )}
-
           {/* TAB CONTENT: 1. TASKS CHECKLIST */}
-          {activeTab === 'tasks' && (
-            <div className="space-y-3">
-              <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider pl-1">
-                Minhas Tarefas Pendentes
-              </h3>
-              
-              {tasks.length === 0 ? (
-                <div className="bg-slate-950 border border-slate-800/60 rounded-3xl p-6 text-center">
-                  <CheckCircle2 className="w-8 h-8 text-[#25cca7] mx-auto mb-2" />
-                  <h4 className="text-sm font-bold text-white">Todas as tarefas feitas!</h4>
-                  <p className="text-xs text-slate-500 mt-1">Nenhuma atividade pendente para hoje.</p>
-                </div>
-              ) : (
-                tasks.map((task) => {
-                  const isPending = task.status === 'PENDING';
-                  const isCompleted = task.status === 'COMPLETED';
-                  const isApproved = task.status === 'APPROVED';
-                  const isRejected = task.status === 'REJECTED';
+          {activeTab === 'tasks' && (() => {
+            const filteredTasks = tasks.filter((task) => {
+              if (taskViewMode === 'all') {
+                return !(task.isDaily && task.status === 'APPROVED');
+              }
+              if (task.isDaily) {
+                return !(task.status === 'APPROVED' && !isSameDay(task.approvedAt, selectedDate));
+              }
+              if (task.deadline) {
+                return isSameDay(task.deadline, selectedDate);
+              }
+              return isSameDay(task.createdAt, selectedDate);
+            });
 
-                  return (
-                    <div 
-                      key={task.id}
-                      className={`bg-slate-950 rounded-2xl p-4 border transition-all duration-300 ${
-                        isCompleted ? 'border-slate-800 opacity-60' : 
-                        isApproved ? 'border-[#76c043]/40 bg-[#76c043]/5' : 
-                        isRejected ? 'border-red-800/60 bg-red-950/5' : 
-                        'border-slate-800/80 hover:border-slate-700'
+            // Group tasks by title for repeating instances
+            const groupedTasks = [];
+            const dailyGroups = {};
+
+            filteredTasks.forEach(task => {
+              if (task.isDaily) {
+                const key = task.title + '-' + task.category;
+                if (!dailyGroups[key]) {
+                  dailyGroups[key] = {
+                    title: task.title,
+                    description: task.description,
+                    category: task.category,
+                    difficulty: task.difficulty,
+                    isDaily: true,
+                    rewardType: task.rewardType,
+                    rewardCoins: task.rewardCoins,
+                    rewardReal: task.rewardReal,
+                    xpReward: task.xpReward,
+                    instances: [task]
+                  };
+                } else {
+                  dailyGroups[key].instances.push(task);
+                }
+              } else {
+                groupedTasks.push({
+                  ...task,
+                  instances: [task]
+                });
+              }
+            });
+
+            Object.values(dailyGroups).forEach(group => {
+              groupedTasks.push(group);
+            });
+
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between px-1">
+                  <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider pl-1">
+                    Minhas Tarefas
+                  </h3>
+                </div>
+
+                {/* Alternador de Visualização: Semana, Mês ou Ver Tudo */}
+                <div className="flex bg-slate-950 p-1 rounded-2xl border border-slate-850">
+                  {[
+                    { mode: 'weekly', label: 'Agenda Semanal' },
+                    { mode: 'monthly', label: 'Calendário Mensal' },
+                    { mode: 'all', label: 'Ver Tudo' }
+                  ].map((item) => (
+                    <button
+                      key={item.mode}
+                      type="button"
+                      onClick={() => setTaskViewMode(item.mode)}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-black transition-all active:scale-98 ${
+                        taskViewMode === item.mode 
+                          ? 'bg-slate-900 text-white shadow-xs border border-slate-800' 
+                          : 'text-slate-500 hover:text-slate-350'
                       }`}
                     >
-                      <div className="flex items-start gap-3 justify-between">
-                        <div className="flex items-start gap-2.5 min-w-0">
-                          {/* Category Icon */}
-                          <div className="p-2 rounded-xl bg-slate-900 border border-slate-800 shrink-0 mt-0.5">
-                            {getCategoryIcon(task.category)}
-                          </div>
-                          
-                          <div className="min-w-0">
-                            <span className="text-[8px] font-bold tracking-widest text-slate-500 uppercase">
-                              {task.category}
-                            </span>
-                            <h4 className="text-sm font-bold text-white truncate mt-0.5">{task.title}</h4>
-                            {task.description && <p className="text-[11px] text-slate-400 line-clamp-2 mt-0.5 leading-tight">{task.description}</p>}
-                            
-                            {/* Rewards */}
-                            <div className="flex items-center gap-1.5 mt-2">
-                              {task.rewardCoins > 0 && (
-                                <span className="inline-flex items-center gap-0.5 bg-[#fef01e]/10 text-[#fef01e] px-2 py-0.5 rounded-md border border-[#fef01e]/10 text-[9px] font-bold">
-                                  <Coins className="w-3 h-3" />+{task.rewardCoins}
-                                </span>
-                              )}
-                              {parseFloat(task.rewardReal) > 0 && (
-                                <span className="inline-flex items-center gap-0.5 bg-[#25cca7]/10 text-[#25cca7] px-2 py-0.5 rounded-md border border-[#25cca7]/10 text-[9px] font-bold">
-                                  <DollarSign className="w-3 h-3" />+R$ {parseFloat(task.rewardReal).toFixed(2)}
-                                </span>
-                              )}
-                              <span className="inline-flex items-center gap-0.5 bg-[#a48cb3]/10 text-[#a48cb3] px-2 py-0.5 rounded-md border border-[#a48cb3]/10 text-[9px] font-bold">
-                                <Sparkles className="w-3 h-3" />+{task.xpReward} XP
-                              </span>
-                            </div>
-                          </div>
-                        </div>
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
 
-                        {/* Complete action triggers */}
-                        <div className="shrink-0">
-                          {isPending && (
-                            <button
-                              disabled={loading}
-                              onClick={() => handleCompleteTask(task.id)}
-                              className="bg-[#25cca7] hover:bg-[#1fb393] text-slate-950 font-black px-3 py-2 rounded-xl text-[10px] uppercase tracking-wider shadow-sm transition-transform active:scale-95"
-                            >
-                              Fiz!
-                            </button>
-                          )}
-
-                          {isCompleted && (
-                            <span className="inline-flex items-center gap-1 bg-slate-900 border border-slate-800 text-slate-500 px-2.5 py-1.5 rounded-xl text-[9px] font-bold uppercase">
-                              <AlertCircle className="w-3 h-3 text-slate-500" />
-                              Aprovar
-                            </span>
-                          )}
-
-                          {isApproved && (
-                            <span className="inline-flex items-center gap-1 bg-[#76c043]/10 border border-[#76c043]/20 text-[#76c043] px-2.5 py-1.5 rounded-xl text-[9px] font-bold uppercase">
-                              <CheckCircle2 className="w-3 h-3" />
-                              OK
-                            </span>
-                          )}
-
-                          {isRejected && (
-                            <div className="flex flex-col items-end gap-1">
-                              <span className="inline-flex items-center gap-1 bg-red-950/30 border border-red-900/30 text-red-500 px-2 py-1 rounded-lg text-[8px] font-bold uppercase">
-                                <AlertCircle className="w-3 h-3" />
-                                Refazer
-                              </span>
-                              <button
-                                disabled={loading}
-                                onClick={() => handleCompleteTask(task.id)}
-                                className="text-[10px] font-bold text-[#25cca7] hover:underline mt-0.5"
-                              >
-                                Fiz de novo
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                {/* Weekly Calendar navigation */}
+                {taskViewMode === 'weekly' && (
+                  <div className="bg-slate-950 border border-slate-855 rounded-3xl p-4.5 space-y-4 shadow-inner">
+                    <div className="flex items-center justify-between px-1">
+                      <button
+                        type="button"
+                        onClick={handlePrevWeek}
+                        className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors active:scale-90"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs font-black text-white uppercase tracking-wider">
+                        {getMonthName(currentWeekStart)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleNextWeek}
+                        className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors active:scale-90"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
                     </div>
-                  );
-                })
-              )}
-            </div>
-          )}
 
+                    <div className="flex gap-2">
+                      {getWeekDays(currentWeekStart).map((day, index) => {
+                        const isSelected = isSameDay(day, selectedDate);
+                        const isTodayDate = isSameDay(day, new Date());
+                        const dayNumber = String(day.getDate()).padStart(2, '0');
+                        const weekday = getWeekdayName(day);
+                        return (
+                          <button
+                            key={index}
+                            type="button"
+                            onClick={() => setSelectedDate(day)}
+                            className={`flex-1 py-3.5 px-1 rounded-2xl flex flex-col items-center justify-center transition-all border ${
+                              isSelected 
+                                ? 'bg-amber-500 border-amber-500 text-slate-955 font-black shadow-[0_0_15px_rgba(245,158,11,0.35)]' 
+                                : isTodayDate
+                                  ? 'bg-slate-900 border-amber-500/50 text-amber-400 font-bold'
+                                  : 'bg-slate-900/40 border-slate-850 text-slate-400 hover:border-slate-700'
+                            }`}
+                          >
+                            <span className="text-[9px] font-bold uppercase tracking-wider">{weekday}</span>
+                            <span className="text-sm font-black mt-1.5">{dayNumber}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Monthly Calendar Navigation */}
+                {taskViewMode === 'monthly' && (
+                  <div className="bg-slate-950 border border-slate-850 rounded-3xl p-4.5 space-y-4 shadow-inner">
+                    <div className="flex items-center justify-between px-1">
+                      <button
+                        type="button"
+                        onClick={handlePrevMonth}
+                        className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors active:scale-90"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs font-black text-white uppercase tracking-wider">
+                        {getMonthName(currentMonthDate)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleNextMonth}
+                        className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors active:scale-90"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-7 gap-1.5 text-center">
+                      {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((wd, idx) => (
+                        <span key={idx} className="text-[9px] font-black text-slate-500 uppercase">{wd}</span>
+                      ))}
+
+                      {getMonthDays(currentMonthDate).map((dayObj, index) => {
+                        const day = dayObj.date;
+                        const isSelected = isSameDay(day, selectedDate);
+                        const isTodayDate = isSameDay(day, new Date());
+                        const dayNumber = day.getDate();
+                        const { hasApproved, hasCompleted, hasRejected, hasPending } = getDayStatusDots(day);
+
+                        return (
+                          <button
+                            key={index}
+                            type="button"
+                            onClick={() => {
+                              setSelectedDate(day);
+                              setCurrentWeekStart(getSundayOfCurrentWeek(day));
+                            }}
+                            className={`py-2 px-1 rounded-xl flex flex-col items-center justify-center transition-all border relative ${
+                              isSelected 
+                                ? 'bg-amber-500 border-amber-500 text-slate-955 font-black' 
+                                : isTodayDate
+                                  ? 'bg-slate-900 border-amber-500/50 text-amber-400'
+                                  : dayObj.isCurrentMonth
+                                    ? 'bg-slate-900/20 border-slate-855/50 text-slate-300 hover:border-slate-700'
+                                    : 'bg-transparent border-transparent text-slate-600 hover:border-slate-855'
+                            }`}
+                          >
+                            <span className="text-xs font-black">{dayNumber}</span>
+                            
+                            {/* Tiny status indicator dots */}
+                            <div className="flex gap-0.5 mt-0.5 justify-center min-h-[4px]">
+                              {hasApproved && <span className="w-1 h-1 rounded-full bg-[#76c043]" />}
+                              {hasCompleted && <span className="w-1 h-1 rounded-full bg-[#fef01e]" />}
+                              {hasRejected && <span className="w-1 h-1 rounded-full bg-red-500" />}
+                              {hasPending && <span className="w-1 h-1 rounded-full bg-blue-400" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {groupedTasks.length === 0 ? (
+                  <div className="bg-slate-950 border border-slate-800/60 rounded-3xl p-8 text-center shadow-inner">
+                    <CheckCircle2 className="w-8 h-8 text-[#25cca7] mx-auto mb-2.5" />
+                    <h4 className="text-sm font-bold text-white">
+                      Tudo limpo por aqui!
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Oba! Nenhum dever encontrado para este dia.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {groupedTasks.map((task, gIdx) => {
+                      const hasMultiple = task.instances.length > 1 || task.isDaily;
+
+                      return (
+                        <div 
+                          key={gIdx}
+                          className="bg-slate-950 rounded-2xl p-4 border border-slate-800/80 hover:border-slate-700 transition-all"
+                        >
+                          <div className="flex items-start gap-3 justify-between">
+                            <div className="flex items-start gap-2.5 min-w-0">
+                              {/* Category Icon */}
+                              <div className="p-2 rounded-xl bg-slate-900 border border-slate-800 shrink-0 mt-0.5">
+                                {getCategoryIcon(task.category)}
+                              </div>
+                              
+                              <div className="min-w-0">
+                                <span className="text-[8px] font-bold tracking-widest text-slate-500 uppercase">
+                                  {task.category}
+                                </span>
+                                
+                                <h4 className="text-sm font-bold text-white truncate mt-0.5">{task.title}</h4>
+                                {task.description && <p className="text-[11px] text-slate-400 line-clamp-2 mt-0.5 leading-tight">{task.description}</p>}
+                                
+                                {/* Repetitions progress status pill row */}
+                                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                                  {task.instances.map((inst, idx) => (
+                                    <span key={inst.id || idx} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
+                                      inst.status === 'APPROVED' ? 'bg-[#76c043]/10 text-[#76c043] border border-[#76c043]/20' :
+                                      inst.status === 'COMPLETED' ? 'bg-[#fef01e]/10 text-[#fef01e] border border-[#fef01e]/20 animate-pulse' :
+                                      inst.status === 'REJECTED' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-slate-900 text-slate-500 border border-slate-800'
+                                    }`}>
+                                      {inst.status === 'APPROVED' && <CheckCircle2 className="w-2.5 h-2.5" />}
+                                      {inst.status === 'COMPLETED' && <AlertCircle className="w-2.5 h-2.5" />}
+                                      {inst.status === 'REJECTED' && <AlertCircle className="w-2.5 h-2.5" />}
+                                      {hasMultiple ? 'Repetição #' + (idx + 1) : 'Tarefa'}
+                                    </span>
+                                  ))}
+                                </div>
+
+                                {/* Rewards summary */}
+                                <div className="flex items-center gap-1.5 mt-2">
+                                  {task.rewardCoins > 0 && (
+                                    <span className="inline-flex items-center gap-0.5 bg-[#fef01e]/10 text-[#fef01e] px-1.5 py-0.5 rounded-md text-[9px] font-bold">
+                                      <Coins className="w-3 h-3" />+{task.rewardCoins}
+                                    </span>
+                                  )}
+                                  {parseFloat(task.rewardReal) > 0 && (
+                                    <span className="inline-flex items-center gap-0.5 bg-[#25cca7]/10 text-[#25cca7] px-1.5 py-0.5 rounded-md text-[9px] font-bold">
+                                      <DollarSign className="w-3 h-3" />+R$ {parseFloat(task.rewardReal).toFixed(2)}
+                                    </span>
+                                  )}
+                                  <span className="inline-flex items-center gap-0.5 bg-[#a48cb3]/10 text-[#a48cb3] px-1.5 py-0.5 rounded-md text-[9px] font-bold">
+                                    <Sparkles className="w-3 h-3" />+{task.xpReward} XP
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="shrink-0 flex flex-col gap-1.5 justify-center items-end">
+                              {/* PENDING → Fiz! button */}
+                              {task.instances.some(inst => inst.status === 'PENDING') && (
+                                <button
+                                  disabled={loading}
+                                  onClick={() => handleCompleteTask(task.instances.find(inst => inst.status === 'PENDING').id)}
+                                  className="bg-[#25cca7] hover:bg-[#1fb393] text-slate-955 font-black px-3 py-2 rounded-xl text-[10px] uppercase tracking-wider shadow-sm transition-transform active:scale-95 cursor-pointer"
+                                >
+                                  Fiz!
+                                </button>
+                              )}
+
+                              {/* isDaily + COMPLETED: show "Fiz de novo!" for another submission */}
+                              {task.isDaily && task.instances.some(inst => inst.status === 'COMPLETED') && !task.instances.some(inst => inst.status === 'PENDING') && (
+                                <button
+                                  disabled={loading}
+                                  onClick={() => handleCompleteTask(task.instances.find(inst => inst.status === 'COMPLETED').id)}
+                                  className="bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-600/30 font-black px-2.5 py-1.5 rounded-xl text-[9px] uppercase tracking-wider transition-transform active:scale-95 cursor-pointer flex items-center gap-1"
+                                >
+                                  ↻ Fiz de novo!
+                                </button>
+                              )}
+
+                              {/* REJECTED → Refazer! */}
+                              {task.instances.some(inst => inst.status === 'REJECTED') && !task.instances.some(inst => inst.status === 'PENDING') && (
+                                <button
+                                  disabled={loading}
+                                  onClick={() => handleCompleteTask(task.instances.find(inst => inst.status === 'REJECTED').id)}
+                                  className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 font-black px-2.5 py-1.5 rounded-xl text-[9px] uppercase tracking-wider transition-transform active:scale-95 cursor-pointer"
+                                >
+                                  Refazer!
+                                </button>
+                              )}
+
+                              {/* COMPLETED + not isDaily: waiting badge */}
+                              {!task.isDaily && task.instances.some(inst => inst.status === 'COMPLETED') && !task.instances.some(inst => inst.status === 'PENDING' || inst.status === 'REJECTED') && (
+                                <span className="inline-flex items-center gap-1 bg-slate-900 border border-slate-800 text-slate-500 px-2.5 py-1.5 rounded-xl text-[9px] font-bold uppercase">
+                                  <AlertCircle className="w-3 h-3 text-slate-500" />
+                                  Aguardando
+                                </span>
+                              )}
+
+                              {/* isDaily COMPLETED: show how many sent today */}
+                              {task.isDaily && task.instances.some(inst => inst.status === 'COMPLETED') && (
+                                <span className="text-[8px] text-indigo-400/70 font-bold">
+                                  {task.instances.filter(i => i.status === 'COMPLETED').length}x enviado
+                                </span>
+                              )}
+
+                              {/* All approved badge */}
+                              {task.instances.every(inst => inst.status === 'APPROVED') && (
+                                <span className="inline-flex items-center gap-1 bg-[#76c043]/10 border border-[#76c043]/20 text-[#76c043] px-2.5 py-1.5 rounded-xl text-[9px] font-bold uppercase">
+                                  <CheckCircle2 className="w-3 h-3" /> OK
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          
           {/* TAB CONTENT: 2. GOALS (SONHOS SAVINGS) */}
           {activeTab === 'goals' && (
             <div className="space-y-4">
@@ -684,12 +1005,12 @@ export default function SofiaDashboard() {
               )}
 
               {/* Categories selectors */}
-              <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-thin">
+              <div className="flex flex-wrap gap-1.5 pb-1">
                 {Object.entries(shopCategories).map(([cat, label]) => (
                   <button
                     key={cat}
                     onClick={() => setActiveShopCategory(cat)}
-                    className={`py-1.5 px-3 rounded-lg text-[10px] font-bold shrink-0 border transition-all ${
+                    className={`py-1.5 px-3 rounded-lg text-[10px] font-bold border transition-all ${
                       activeShopCategory === cat 
                         ? 'bg-[#fca570] border-[#fca570] text-slate-950' 
                         : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'

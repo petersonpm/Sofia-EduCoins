@@ -94,3 +94,12 @@
 ::-webkit-scrollbar-thumb {
   @apply bg-violet-200 hover:bg-violet-300 rounded-full transition-colors;
 }
+
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}

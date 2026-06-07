@@ -153,12 +153,12 @@ export default function AvatarShop() {
           )}
 
           {/* Category tabs filters */}
-          <section className="flex gap-1 overflow-x-auto pb-1 border-b border-slate-800">
+          <section className="flex flex-wrap gap-1.5 pb-2 border-b border-slate-800">
             {Object.entries(categoryLabels).map(([cat, label]) => (
               <button
                 key={cat}
                 onClick={() => setActiveCategory(cat)}
-                className={`py-1.5 px-3 rounded-lg text-[10px] font-bold shrink-0 border transition-all ${
+                className={`py-1.5 px-3 rounded-lg text-[10px] font-bold border transition-all ${
                   activeCategory === cat 
                     ? 'bg-indigo-600 border-indigo-500 text-white' 
                     : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'

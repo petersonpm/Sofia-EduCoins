@@ -18,6 +18,7 @@ export default function AvatarRenderer({ config = {}, size = 'md' }) {
   const equipped = avatar.equipped || avatar;
 
   const sizeClasses = {
+    xs: 'w-10 h-10',
     sm: 'w-16 h-16',
     md: 'w-28 h-28',
     lg: 'w-40 h-40',

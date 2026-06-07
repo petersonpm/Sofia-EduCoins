@@ -60,6 +60,7 @@ model Task {
   category       String     // Ex: "Organização", "Estudos", "Leitura", "Higiene", "Responsabilidade", "Atividades físicas", "Tarefas domésticas"
   difficulty     String     // Ex: "Fácil", "Médio", "Difícil"
   status         String     @default("PENDING") // PENDING, COMPLETED, APPROVED, REJECTED
+  isDaily        Boolean    @default(true)      // Define se a tarefa se repete diariamente
   
   rewardType     String     @default("COINS") // COINS, REAL_MONEY, BOTH
   rewardCoins    Int        @default(0)
