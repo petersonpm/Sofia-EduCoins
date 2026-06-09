@@ -9,7 +9,8 @@ import {
   Award, Flame, Sparkles, LogOut, Store, Bell, CheckCircle2, 
   AlertCircle, Trophy, Target, ClipboardList, PiggyBank, 
   Coins, ArrowRight, BookOpen, Home, Activity, Heart, Shield,
-  ChevronRight, ChevronLeft, Calendar, ShoppingBag, Plus, Lock, DollarSign
+  ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Calendar, ShoppingBag, Plus, Lock, DollarSign,
+  Trash2, Edit3, TrendingUp, ArrowRightLeft
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -49,6 +50,56 @@ export default function SofiaDashboard() {
     return weekdays[date.getDay()];
   };
 
+  const getJarColors = (colorName) => {
+    const map = {
+      amber: {
+        text: 'text-[#fef01e]',
+        bg: 'bg-[#fef01e]/10',
+        border: 'border-[#fef01e]/20',
+        focus: 'focus:border-[#fef01e]',
+        borderHover: 'hover:border-[#fef01e]/40',
+        badge: 'bg-[#fef01e]/20 text-[#fef01e]'
+      },
+      emerald: {
+        text: 'text-[#76c043]',
+        bg: 'bg-[#76c043]/10',
+        border: 'border-[#76c043]/20',
+        focus: 'focus:border-[#76c043]',
+        borderHover: 'hover:border-[#76c043]/40',
+        badge: 'bg-[#76c043]/20 text-[#76c043]'
+      },
+      rose: {
+        text: 'text-[#e6728a]',
+        bg: 'bg-[#e6728a]/10',
+        border: 'border-[#e6728a]/20',
+        focus: 'focus:border-[#e6728a]',
+        borderHover: 'hover:border-[#e6728a]/40',
+        badge: 'bg-[#e6728a]/20 text-[#e6728a]'
+      },
+      indigo: {
+        text: 'text-indigo-400',
+        bg: 'bg-indigo-500/10',
+        border: 'border-indigo-500/20',
+        focus: 'focus:border-indigo-400',
+        borderHover: 'hover:border-indigo-500/40',
+        badge: 'bg-indigo-500/20 text-indigo-400'
+      },
+    };
+    return map[colorName] || map.indigo;
+  };
+
+  const getJarIcon = (iconName, colorName) => {
+    const colors = getJarColors(colorName);
+    const map = {
+      ShoppingBag: <ShoppingBag className={`w-5 h-5 ${colors.text}`} />,
+      PiggyBank: <PiggyBank className={`w-5 h-5 ${colors.text}`} />,
+      Heart: <Heart className={`w-5 h-5 ${colors.text}`} />,
+      TrendingUp: <TrendingUp className={`w-5 h-5 ${colors.text}`} />,
+      Target: <Target className={`w-5 h-5 ${colors.text}`} />,
+    };
+    return map[iconName] || <PiggyBank className={`w-5 h-5 ${colors.text}`} />;
+  };
+
   // Agenda / Calendário States
   const [taskViewMode, setTaskViewMode] = useState('weekly'); // 'weekly', 'monthly', 'all'
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -67,11 +118,50 @@ export default function SofiaDashboard() {
     setCurrentMonthDate(newDate);
   };
 
+  const getDaysInMonth = (year, month) => {
+    return new Date(year, month + 1, 0).getDate();
+  };
+
+  const getMonthDays = (date = new Date()) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const daysInMonth = getDaysInMonth(year, month);
+    const firstDayIndex = new Date(year, month, 1).getDay(); // 0: Dom, 1: Seg, etc.
+
+    const days = [];
+    const prevMonthDays = new Date(year, month, 0).getDate();
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      days.push({
+        date: new Date(year, month - 1, prevMonthDays - i),
+        isCurrentMonth: false
+      });
+    }
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push({
+        date: new Date(year, month, i),
+        isCurrentMonth: true
+      });
+    }
+    const remaining = 42 - days.length;
+    for (let i = 1; i <= remaining; i++) {
+      days.push({
+        date: new Date(year, month + 1, i),
+        isCurrentMonth: false
+      });
+    }
+    return days;
+  };
+
   const getDayStatusDots = (day) => {
     const dayFiltered = tasks.filter(task => {
       if (task.isDaily) {
-        return (task.status === 'APPROVED' && isSameDay(task.approvedAt, day)) ||
-               (task.status !== 'APPROVED' && isSameDay(selectedDate, day));
+        if (task.status === 'APPROVED' && task.approvedAt) {
+          return isSameDay(task.approvedAt, day);
+        }
+        if ((task.status === 'COMPLETED' || task.status === 'REJECTED') && task.completedAt) {
+          return isSameDay(task.completedAt, day);
+        }
+        return isSameDay(new Date(), day);
       }
       if (task.deadline) {
         return isSameDay(task.deadline, day);
@@ -131,12 +221,32 @@ export default function SofiaDashboard() {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  // Expand/collapse per task card (keyed by task title+category)
+  const [expandedChildTasks, setExpandedChildTasks] = useState({});
+  const toggleChildTask = (key) => setExpandedChildTasks(prev => ({ ...prev, [key]: !prev[key] }));
+
   // Create Goal States for child
   const [showCreateGoal, setShowCreateGoal] = useState(false);
+  const [editingGoal, setEditingGoal] = useState(null);
   const [goalTitle, setGoalTitle] = useState('');
   const [goalType, setGoalType] = useState('REAL_MONEY');
   const [goalTargetCoins, setGoalTargetCoins] = useState(100);
   const [goalTargetReal, setGoalTargetReal] = useState(50.00);
+
+  // Caixinhas (Budget Jars) States
+  const [jars, setJars] = useState([]);
+  const [showCreateJar, setShowCreateJar] = useState(false);
+  const [jarName, setJarName] = useState('');
+  const [jarIcon, setJarIcon] = useState('ShoppingBag');
+  const [jarColor, setJarColor] = useState('amber');
+  const [transferJar, setTransferJar] = useState(null);
+  const [transferDirection, setTransferDirection] = useState('IN'); // 'IN' (Wallet -> Jar) or 'OUT' (Jar -> Wallet)
+  const [transferAmount, setTransferAmount] = useState('');
+  const [transferType, setTransferType] = useState('COINS'); // 'COINS' or 'REAL_MONEY'
+  const [interestJar, setInterestJar] = useState(null); // Selected jar for compound interest simulator widget
+  const [simulatorAmount, setSimulatorAmount] = useState('10');
+  const [simulatorRate, setSimulatorRate] = useState('10'); // Default 10%
+  const [simulatorResult, setSimulatorResult] = useState([]);
 
   // Load dashboard and shop data
   const loadData = async () => {
@@ -152,6 +262,9 @@ export default function SofiaDashboard() {
 
       const shopRes = await api.get('/shop');
       setShopItems(shopRes.data);
+
+      const jarsRes = await api.get('/jars');
+      setJars(jarsRes.data);
     } catch (err) {
       console.error('Erro ao carregar dados:', err);
     }
@@ -212,6 +325,90 @@ export default function SofiaDashboard() {
       socket.disconnect();
     };
   }, [user]);
+
+  // Actions: Caixinhas (Jars) Management
+  const handleCreateJar = async (e) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+    setLoading(true);
+    try {
+      await api.post('/jars', {
+        name: jarName,
+        icon: jarIcon,
+        color: jarColor,
+      });
+      setSuccessMsg('Caixinha criada com sucesso!');
+      setJarName('');
+      setShowCreateJar(false);
+      loadData();
+    } catch (err) {
+      playBuzzerSound();
+      setErrorMsg(err.response?.data?.error || 'Erro ao criar caixinha.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteJar = async (jarId) => {
+    if (!window.confirm('Tem certeza que deseja excluir esta caixinha? Todo o saldo contido nela será devolvido à sua carteira principal.')) {
+      return;
+    }
+    setErrorMsg('');
+    setSuccessMsg('');
+    setLoading(true);
+    try {
+      await api.delete(`/jars/${jarId}`);
+      setSuccessMsg('Caixinha excluída e economias estornadas!');
+      loadData();
+      refreshUser();
+    } catch (err) {
+      playBuzzerSound();
+      setErrorMsg(err.response?.data?.error || 'Erro ao excluir caixinha.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTransferJar = async (e) => {
+    e.preventDefault();
+    if (!transferJar || !transferAmount || parseFloat(transferAmount) <= 0) return;
+    setErrorMsg('');
+    setSuccessMsg('');
+    setLoading(true);
+    const from = transferDirection === 'IN' ? 'wallet' : transferJar.id;
+    const to = transferDirection === 'IN' ? transferJar.id : 'wallet';
+    try {
+      await api.post('/jars/transfer', {
+        from,
+        to,
+        amount: parseFloat(transferAmount),
+        type: transferType,
+      });
+      playCoinSound();
+      setSuccessMsg('Transferência realizada com sucesso!');
+      setTransferAmount('');
+      setTransferJar(null);
+      loadData();
+      refreshUser();
+    } catch (err) {
+      playBuzzerSound();
+      setErrorMsg(err.response?.data?.error || 'Erro ao transferir.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runInterestSimulator = (amount, rate, periods = 6) => {
+    const p = parseFloat(amount) || 0;
+    const r = parseFloat(rate) / 100 || 0;
+    const results = [];
+    for (let i = 1; i <= periods; i++) {
+      const balance = p * Math.pow(1 + r, i);
+      results.push({ period: i, balance: balance.toFixed(1), interest: (balance - p).toFixed(1) });
+    }
+    setSimulatorResult(results);
+  };
 
   // Actions: Complete Task
   const handleCompleteTask = async (taskId) => {
@@ -283,6 +480,62 @@ export default function SofiaDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleUpdateGoal = async (e) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+    setLoading(true);
+
+    try {
+      await api.put(`/goals/${editingGoal.id}`, {
+        title: goalTitle,
+        type: goalType,
+        targetCoins: goalType === 'COINS' ? goalTargetCoins : 0,
+        targetReal: goalType === 'REAL_MONEY' ? goalTargetReal : 0,
+      });
+
+      setSuccessMsg('Sonho atualizado com sucesso!');
+      setGoalTitle('');
+      setEditingGoal(null);
+      loadData();
+      refreshUser();
+    } catch (err) {
+      playBuzzerSound();
+      setErrorMsg(err.response?.data?.error || 'Erro ao editar sonho.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteGoal = async (goalId) => {
+    if (!window.confirm('Tem certeza que deseja excluir este sonho? O dinheiro/moedas guardados nele serão devolvidos para a sua carteira.')) {
+      return;
+    }
+    setErrorMsg('');
+    setSuccessMsg('');
+    setLoading(true);
+
+    try {
+      await api.delete(`/goals/${goalId}`);
+      setSuccessMsg('Sonho excluído e economias devolvidas!');
+      loadData();
+      refreshUser();
+    } catch (err) {
+      playBuzzerSound();
+      setErrorMsg(err.response?.data?.error || 'Erro ao excluir sonho.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openEditGoal = (goal) => {
+    setEditingGoal(goal);
+    setGoalTitle(goal.title);
+    setGoalType(goal.type);
+    setGoalTargetCoins(goal.targetCoins);
+    setGoalTargetReal(parseFloat(goal.targetReal));
   };
 
   // Actions: Shop Purchase
@@ -550,53 +803,131 @@ export default function SofiaDashboard() {
           )}
           {/* TAB CONTENT: 1. TASKS CHECKLIST */}
           {activeTab === 'tasks' && (() => {
-            const filteredTasks = tasks.filter((task) => {
-              if (taskViewMode === 'all') {
-                return !(task.isDaily && task.status === 'APPROVED');
-              }
-              if (task.isDaily) {
-                return !(task.status === 'APPROVED' && !isSameDay(task.approvedAt, selectedDate));
-              }
-              if (task.deadline) {
-                return isSameDay(task.deadline, selectedDate);
-              }
-              return isSameDay(task.createdAt, selectedDate);
-            });
-
-            // Group tasks by title for repeating instances
             const groupedTasks = [];
-            const dailyGroups = {};
 
-            filteredTasks.forEach(task => {
-              if (task.isDaily) {
-                const key = task.title + '-' + task.category;
-                if (!dailyGroups[key]) {
-                  dailyGroups[key] = {
-                    title: task.title,
-                    description: task.description,
-                    category: task.category,
-                    difficulty: task.difficulty,
-                    isDaily: true,
-                    rewardType: task.rewardType,
-                    rewardCoins: task.rewardCoins,
-                    rewardReal: task.rewardReal,
-                    xpReward: task.xpReward,
-                    instances: [task]
-                  };
+            if (taskViewMode === 'all') {
+              // "Ver Tudo" mode: show all active tasks (hide approved daily task history clones)
+              const filtered = tasks.filter(task => !(task.isDaily && task.status === 'APPROVED'));
+              const dailyGroups = {};
+
+              filtered.forEach(task => {
+                if (task.isDaily) {
+                  const key = `${task.title}-${task.category}`;
+                  if (!dailyGroups[key]) {
+                    dailyGroups[key] = {
+                      title: task.title,
+                      description: task.description,
+                      category: task.category,
+                      difficulty: task.difficulty,
+                      isDaily: true,
+                      rewardType: task.rewardType,
+                      rewardCoins: task.rewardCoins,
+                      rewardReal: task.rewardReal,
+                      xpReward: task.xpReward,
+                      instances: [task]
+                    };
+                  } else {
+                    dailyGroups[key].instances.push(task);
+                  }
                 } else {
-                  dailyGroups[key].instances.push(task);
+                  groupedTasks.push({
+                    ...task,
+                    instances: [task]
+                  });
                 }
-              } else {
+              });
+
+              Object.values(dailyGroups).forEach(group => {
+                groupedTasks.push(group);
+              });
+            } else {
+              // Calendar modes ("weekly" or "monthly"):
+              // 1. Identify all unique daily task definitions
+              const dailyDefs = [];
+              tasks.forEach(task => {
+                if (task.isDaily) {
+                  const alreadyAdded = dailyDefs.some(d => 
+                    d.title.trim().toLowerCase() === task.title.trim().toLowerCase() && 
+                    d.category.trim().toLowerCase() === task.category.trim().toLowerCase()
+                  );
+                  if (!alreadyAdded) {
+                    dailyDefs.push(task);
+                  }
+                }
+              });
+
+              // 2. Identify one-off tasks belonging to this date
+              const oneOffTasks = tasks.filter(task => {
+                if (task.isDaily) return false;
+                if (task.deadline) {
+                  return isSameDay(task.deadline, selectedDate);
+                }
+                return isSameDay(task.createdAt, selectedDate);
+              });
+
+              const isToday = isSameDay(selectedDate, new Date());
+
+              // 3. Map each daily task to its instances for the selected date
+              dailyDefs.forEach(def => {
+                const completions = tasks.filter(task => {
+                  if (!task.isDaily) return false;
+                  if (task.title.trim().toLowerCase() !== def.title.trim().toLowerCase() ||
+                      task.category.trim().toLowerCase() !== def.category.trim().toLowerCase()) {
+                    return false;
+                  }
+
+                  if (task.status === 'APPROVED') {
+                    return isSameDay(task.approvedAt, selectedDate);
+                  }
+                  if (task.status === 'COMPLETED' || task.status === 'REJECTED') {
+                    return isSameDay(task.completedAt, selectedDate);
+                  }
+
+                  return isToday;
+                });
+
+                if (completions.length > 0) {
+                  groupedTasks.push({
+                    title: def.title,
+                    description: def.description,
+                    category: def.category,
+                    difficulty: def.difficulty,
+                    isDaily: true,
+                    rewardType: def.rewardType,
+                    rewardCoins: def.rewardCoins,
+                    rewardReal: def.rewardReal,
+                    xpReward: def.xpReward,
+                    instances: completions
+                  });
+                } else {
+                  groupedTasks.push({
+                    title: def.title,
+                    description: def.description,
+                    category: def.category,
+                    difficulty: def.difficulty,
+                    isDaily: true,
+                    rewardType: def.rewardType,
+                    rewardCoins: def.rewardCoins,
+                    rewardReal: def.rewardReal,
+                    xpReward: def.xpReward,
+                    instances: [{
+                      ...def,
+                      id: `virtual-${def.id}`,
+                      status: 'PENDING',
+                      completedAt: null,
+                      approvedAt: null
+                    }]
+                  });
+                }
+              });
+
+              oneOffTasks.forEach(task => {
                 groupedTasks.push({
                   ...task,
                   instances: [task]
                 });
-              }
-            });
-
-            Object.values(dailyGroups).forEach(group => {
-              groupedTasks.push(group);
-            });
+              });
+            }
 
             return (
               <div className="space-y-4">
@@ -762,119 +1093,170 @@ export default function SofiaDashboard() {
                   <div className="space-y-3">
                     {groupedTasks.map((task, gIdx) => {
                       const hasMultiple = task.instances.length > 1 || task.isDaily;
+                      const cardKey = `${task.title}-${task.category}`;
+                      const isExpanded = !!expandedChildTasks[cardKey];
+
+                      // Derive the overall status for the collapsed summary badge
+                      const hasPending   = task.instances.some(i => i.status === 'PENDING');
+                      const hasCompleted = task.instances.some(i => i.status === 'COMPLETED');
+                      const hasRejected  = task.instances.some(i => i.status === 'REJECTED');
+                      const allApproved  = task.instances.every(i => i.status === 'APPROVED');
+                      const collapsedBadge = allApproved
+                        ? { label: '✔ OK', cls: 'text-[#76c043] bg-[#76c043]/10 border-[#76c043]/20' }
+                        : hasRejected
+                        ? { label: 'Corrigir', cls: 'text-red-400 bg-red-500/10 border-red-500/20' }
+                        : hasCompleted
+                        ? { label: 'Enviado', cls: 'text-[#fef01e] bg-[#fef01e]/10 border-[#fef01e]/20' }
+                        : { label: 'Ativo', cls: 'text-slate-400 bg-slate-900 border-slate-800' };
 
                       return (
                         <div 
                           key={gIdx}
-                          className="bg-slate-950 rounded-2xl p-4 border border-slate-800/80 hover:border-slate-700 transition-all"
+                          className="bg-slate-950 rounded-2xl border border-slate-800/80 hover:border-slate-700 transition-all overflow-hidden"
                         >
-                          <div className="flex items-start gap-3 justify-between">
-                            <div className="flex items-start gap-2.5 min-w-0">
-                              {/* Category Icon */}
-                              <div className="p-2 rounded-xl bg-slate-900 border border-slate-800 shrink-0 mt-0.5">
-                                {getCategoryIcon(task.category)}
-                              </div>
-                              
-                              <div className="min-w-0">
-                                <span className="text-[8px] font-bold tracking-widest text-slate-500 uppercase">
-                                  {task.category}
-                                </span>
-                                
-                                <h4 className="text-sm font-bold text-white truncate mt-0.5">{task.title}</h4>
-                                {task.description && <p className="text-[11px] text-slate-400 line-clamp-2 mt-0.5 leading-tight">{task.description}</p>}
-                                
-                                {/* Repetitions progress status pill row */}
-                                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                                  {task.instances.map((inst, idx) => (
-                                    <span key={inst.id || idx} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
-                                      inst.status === 'APPROVED' ? 'bg-[#76c043]/10 text-[#76c043] border border-[#76c043]/20' :
-                                      inst.status === 'COMPLETED' ? 'bg-[#fef01e]/10 text-[#fef01e] border border-[#fef01e]/20 animate-pulse' :
-                                      inst.status === 'REJECTED' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-slate-900 text-slate-500 border border-slate-800'
-                                    }`}>
-                                      {inst.status === 'APPROVED' && <CheckCircle2 className="w-2.5 h-2.5" />}
-                                      {inst.status === 'COMPLETED' && <AlertCircle className="w-2.5 h-2.5" />}
-                                      {inst.status === 'REJECTED' && <AlertCircle className="w-2.5 h-2.5" />}
-                                      {hasMultiple ? 'Repetição #' + (idx + 1) : 'Tarefa'}
-                                    </span>
-                                  ))}
-                                </div>
-
-                                {/* Rewards summary */}
-                                <div className="flex items-center gap-1.5 mt-2">
-                                  {task.rewardCoins > 0 && (
-                                    <span className="inline-flex items-center gap-0.5 bg-[#fef01e]/10 text-[#fef01e] px-1.5 py-0.5 rounded-md text-[9px] font-bold">
-                                      <Coins className="w-3 h-3" />+{task.rewardCoins}
-                                    </span>
-                                  )}
-                                  {parseFloat(task.rewardReal) > 0 && (
-                                    <span className="inline-flex items-center gap-0.5 bg-[#25cca7]/10 text-[#25cca7] px-1.5 py-0.5 rounded-md text-[9px] font-bold">
-                                      <DollarSign className="w-3 h-3" />+R$ {parseFloat(task.rewardReal).toFixed(2)}
-                                    </span>
-                                  )}
-                                  <span className="inline-flex items-center gap-0.5 bg-[#a48cb3]/10 text-[#a48cb3] px-1.5 py-0.5 rounded-md text-[9px] font-bold">
-                                    <Sparkles className="w-3 h-3" />+{task.xpReward} XP
-                                  </span>
-                                </div>
-                              </div>
+                          {/* Card header — always visible, click to expand/collapse */}
+                          <div
+                            className="flex items-center gap-3 p-4 cursor-pointer select-none"
+                            onClick={() => toggleChildTask(cardKey)}
+                          >
+                            {/* Category Icon */}
+                            <div className="p-2 rounded-xl bg-slate-900 border border-slate-800 shrink-0">
+                              {getCategoryIcon(task.category)}
                             </div>
 
-                            <div className="shrink-0 flex flex-col gap-1.5 justify-center items-end">
-                              {/* PENDING → Fiz! button */}
-                              {task.instances.some(inst => inst.status === 'PENDING') && (
-                                <button
-                                  disabled={loading}
-                                  onClick={() => handleCompleteTask(task.instances.find(inst => inst.status === 'PENDING').id)}
-                                  className="bg-[#25cca7] hover:bg-[#1fb393] text-slate-955 font-black px-3 py-2 rounded-xl text-[10px] uppercase tracking-wider shadow-sm transition-transform active:scale-95 cursor-pointer"
-                                >
-                                  Fiz!
-                                </button>
-                              )}
+                            <div className="min-w-0 flex-1">
+                              <span className="text-[8px] font-bold tracking-widest text-slate-500 uppercase">
+                                {task.category}
+                              </span>
+                              <h4 className="text-sm font-bold text-white truncate">{task.title}</h4>
+                            </div>
 
-                              {/* isDaily + COMPLETED: show "Fiz de novo!" for another submission */}
-                              {task.isDaily && task.instances.some(inst => inst.status === 'COMPLETED') && !task.instances.some(inst => inst.status === 'PENDING') && (
-                                <button
-                                  disabled={loading}
-                                  onClick={() => handleCompleteTask(task.instances.find(inst => inst.status === 'COMPLETED').id)}
-                                  className="bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-600/30 font-black px-2.5 py-1.5 rounded-xl text-[9px] uppercase tracking-wider transition-transform active:scale-95 cursor-pointer flex items-center gap-1"
-                                >
-                                  ↻ Fiz de novo!
-                                </button>
-                              )}
-
-                              {/* REJECTED → Refazer! */}
-                              {task.instances.some(inst => inst.status === 'REJECTED') && !task.instances.some(inst => inst.status === 'PENDING') && (
-                                <button
-                                  disabled={loading}
-                                  onClick={() => handleCompleteTask(task.instances.find(inst => inst.status === 'REJECTED').id)}
-                                  className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 font-black px-2.5 py-1.5 rounded-xl text-[9px] uppercase tracking-wider transition-transform active:scale-95 cursor-pointer"
-                                >
-                                  Refazer!
-                                </button>
-                              )}
-
-                              {/* COMPLETED + not isDaily: waiting badge */}
-                              {!task.isDaily && task.instances.some(inst => inst.status === 'COMPLETED') && !task.instances.some(inst => inst.status === 'PENDING' || inst.status === 'REJECTED') && (
-                                <span className="inline-flex items-center gap-1 bg-slate-900 border border-slate-800 text-slate-500 px-2.5 py-1.5 rounded-xl text-[9px] font-bold uppercase">
-                                  <AlertCircle className="w-3 h-3 text-slate-500" />
-                                  Aguardando
+                            {/* Collapsed status badge + chevron */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              {!isExpanded && (
+                                <span className={`text-[8px] font-black px-2 py-0.5 rounded-lg border ${collapsedBadge.cls}`}>
+                                  {collapsedBadge.label}
                                 </span>
                               )}
-
-                              {/* isDaily COMPLETED: show how many sent today */}
-                              {task.isDaily && task.instances.some(inst => inst.status === 'COMPLETED') && (
-                                <span className="text-[8px] text-indigo-400/70 font-bold">
-                                  {task.instances.filter(i => i.status === 'COMPLETED').length}x enviado
-                                </span>
-                              )}
-
-                              {/* All approved badge */}
-                              {task.instances.every(inst => inst.status === 'APPROVED') && (
-                                <span className="inline-flex items-center gap-1 bg-[#76c043]/10 border border-[#76c043]/20 text-[#76c043] px-2.5 py-1.5 rounded-xl text-[9px] font-bold uppercase">
-                                  <CheckCircle2 className="w-3 h-3" /> OK
-                                </span>
-                              )}
+                              {isExpanded
+                                ? <ChevronUp className="w-4 h-4 text-slate-400" />
+                                : <ChevronDown className="w-4 h-4 text-slate-400" />
+                              }
                             </div>
                           </div>
+
+                          {/* Collapsible body */}
+                          {isExpanded && (
+                            <div className="px-4 pb-4 pt-0 space-y-3">
+                              <div className="flex items-start gap-3 justify-between">
+                                <div className="min-w-0 flex-1">
+                                  {task.description && <p className="text-[11px] text-slate-400 line-clamp-2 leading-tight mb-2">{task.description}</p>}
+
+                                  {/* Repetitions progress status checkpoints */}
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {task.instances.map((inst, idx) => {
+                                      let statusColor = "bg-slate-900 border-slate-800 text-slate-500";
+                                      let Icon = null;
+                                      if (inst.status === 'APPROVED') {
+                                        statusColor = "bg-[#76c043]/10 border-[#76c043]/30 text-[#76c043]";
+                                        Icon = CheckCircle2;
+                                      } else if (inst.status === 'COMPLETED') {
+                                        statusColor = "bg-[#fef01e]/10 border-[#fef01e]/30 text-[#fef01e] animate-pulse";
+                                        Icon = AlertCircle;
+                                      } else if (inst.status === 'REJECTED') {
+                                        statusColor = "bg-red-500/10 border-red-500/30 text-red-400";
+                                        Icon = AlertCircle;
+                                      }
+
+                                      return (
+                                        <div
+                                          key={inst.id || idx}
+                                          className={`w-6 h-6 rounded-full flex items-center justify-center border text-[9px] font-black transition-all ${statusColor}`}
+                                          title={`Repetição #${idx + 1}: ${inst.status}`}
+                                        >
+                                          {Icon ? <Icon className="w-3.5 h-3.5" /> : idx + 1}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {/* Rewards summary */}
+                                  <div className="flex items-center gap-1.5 mt-2">
+                                    {task.rewardCoins > 0 && (
+                                      <span className="inline-flex items-center gap-0.5 bg-[#fef01e]/10 text-[#fef01e] px-1.5 py-0.5 rounded-md text-[9px] font-bold">
+                                        <Coins className="w-3 h-3" />+{task.rewardCoins}
+                                      </span>
+                                    )}
+                                    {parseFloat(task.rewardReal) > 0 && (
+                                      <span className="inline-flex items-center gap-0.5 bg-[#25cca7]/10 text-[#25cca7] px-1.5 py-0.5 rounded-md text-[9px] font-bold">
+                                        <DollarSign className="w-3 h-3" />+R$ {parseFloat(task.rewardReal).toFixed(2)}
+                                      </span>
+                                    )}
+                                    <span className="inline-flex items-center gap-0.5 bg-[#a48cb3]/10 text-[#a48cb3] px-1.5 py-0.5 rounded-md text-[9px] font-bold">
+                                      <Sparkles className="w-3 h-3" />+{task.xpReward} XP
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="shrink-0 flex flex-col gap-1.5 justify-center items-end">
+                                  {/* PENDING → Fiz! button */}
+                                  {task.instances.some(inst => inst.status === 'PENDING') && (
+                                    <button
+                                      disabled={loading}
+                                      onClick={(e) => { e.stopPropagation(); handleCompleteTask(task.instances.find(inst => inst.status === 'PENDING').id); }}
+                                      className="bg-[#25cca7] hover:bg-[#1fb393] text-slate-955 font-black px-3 py-2 rounded-xl text-[10px] uppercase tracking-wider shadow-sm transition-transform active:scale-95 cursor-pointer"
+                                    >
+                                      Fiz!
+                                    </button>
+                                  )}
+
+                                  {/* isDaily + COMPLETED: show "Fiz de novo!" for another submission */}
+                                  {task.isDaily && task.instances.some(inst => inst.status === 'COMPLETED') && !task.instances.some(inst => inst.status === 'PENDING') && (
+                                    <button
+                                      disabled={loading}
+                                      onClick={(e) => { e.stopPropagation(); handleCompleteTask(task.instances.find(inst => inst.status === 'COMPLETED').id); }}
+                                      className="bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-600/30 font-black px-2.5 py-1.5 rounded-xl text-[9px] uppercase tracking-wider transition-transform active:scale-95 cursor-pointer flex items-center gap-1"
+                                    >
+                                      ↻ Fiz de novo!
+                                    </button>
+                                  )}
+
+                                  {/* REJECTED → Refazer! */}
+                                  {task.instances.some(inst => inst.status === 'REJECTED') && !task.instances.some(inst => inst.status === 'PENDING') && (
+                                    <button
+                                      disabled={loading}
+                                      onClick={(e) => { e.stopPropagation(); handleCompleteTask(task.instances.find(inst => inst.status === 'REJECTED').id); }}
+                                      className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 font-black px-2.5 py-1.5 rounded-xl text-[9px] uppercase tracking-wider transition-transform active:scale-95 cursor-pointer"
+                                    >
+                                      Refazer!
+                                    </button>
+                                  )}
+
+                                  {/* COMPLETED + not isDaily: waiting badge */}
+                                  {!task.isDaily && task.instances.some(inst => inst.status === 'COMPLETED') && !task.instances.some(inst => inst.status === 'PENDING' || inst.status === 'REJECTED') && (
+                                    <span className="inline-flex items-center gap-1 bg-slate-900 border border-slate-800 text-slate-500 px-2.5 py-1.5 rounded-xl text-[9px] font-bold uppercase">
+                                      <AlertCircle className="w-3 h-3 text-slate-500" />
+                                      Aguardando
+                                    </span>
+                                  )}
+
+                                  {/* isDaily COMPLETED: show how many sent today */}
+                                  {task.isDaily && task.instances.some(inst => inst.status === 'COMPLETED') && (
+                                    <span className="text-[8px] text-indigo-400/70 font-bold">
+                                      {task.instances.filter(i => i.status === 'COMPLETED').length}x enviado
+                                    </span>
+                                  )}
+
+                                  {/* All approved badge */}
+                                  {task.instances.every(inst => inst.status === 'APPROVED') && (
+                                    <span className="inline-flex items-center gap-1 bg-[#76c043]/10 border border-[#76c043]/20 text-[#76c043] px-2.5 py-1.5 rounded-xl text-[9px] font-bold uppercase">
+                                      <CheckCircle2 className="w-3 h-3" /> OK
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -915,21 +1297,41 @@ export default function SofiaDashboard() {
 
                     return (
                       <div key={goal.id} className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden">
-                        {goal.completed && (
-                          <div className="absolute top-2.5 right-2.5 bg-emerald-600 text-white text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                            Alcançado!
-                          </div>
-                        )}
-                        <div>
+                        <div className="flex items-start justify-between gap-2">
                           <div className="flex items-center gap-2">
                             <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
                               <Target className="w-4.5 h-4.5 text-[#25cca7]" />
                             </div>
                             <div>
                               <h4 className="text-sm font-black text-white leading-snug">{goal.title}</h4>
-                              <p className="text-[9px] text-slate-500 uppercase font-bold mt-0.5">Meta Familiar</p>
+                              <p className="text-[9px] text-slate-500 uppercase font-bold mt-0.5">Meta de Poupança</p>
                             </div>
                           </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            {goal.completed && (
+                              <span className="bg-emerald-600/10 text-[#76c043] border border-emerald-500/20 text-[8px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wider">
+                                Alcançado!
+                              </span>
+                            )}
+                            <button
+                              onClick={() => openEditGoal(goal)}
+                              className="p-1.5 rounded-xl text-slate-500 hover:text-[#25cca7] hover:bg-[#25cca7]/10 transition-all"
+                              title="Editar sonho"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteGoal(goal.id)}
+                              className="p-1.5 rounded-xl text-red-500/80 hover:text-red-400 hover:bg-red-955/20 transition-all"
+                              title="Excluir sonho"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
 
                           <div className="flex items-center justify-between text-xs font-bold mt-4 mb-1">
                             <span className="text-slate-500 text-[10px]">Guardado:</span>
@@ -1129,6 +1531,201 @@ export default function SofiaDashboard() {
             </div>
           )}
 
+          {/* TAB CONTENT: 5. CAIXINHAS (MONEY JARS) */}
+          {activeTab === 'jars' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <PiggyBank className="w-5 h-5 text-indigo-400" />
+                    Minhas Caixinhas de Economia
+                  </h3>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Separe seu dinheiro para diferentes propósitos e aprenda a poupar!</p>
+                </div>
+                <button
+                  onClick={() => setShowCreateJar(true)}
+                  className="bg-[#25cca7] hover:bg-[#1fb393] text-slate-955 font-black py-1.5 px-3 rounded-xl text-[10px] flex items-center gap-1 shadow-sm"
+                >
+                  <Plus className="w-3 h-3" /> Nova caixinha
+                </button>
+              </div>
+
+              {/* Balances Overview Cards */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-950 border border-slate-850 rounded-2xl p-3 flex flex-col justify-between">
+                  <span className="text-[9px] text-slate-500 uppercase font-black">Disponível p/ Gastar</span>
+                  <div className="mt-1.5">
+                    <div className="text-sm font-black text-white">
+                      🪙 {user?.wallet?.balanceCoins || 0}
+                    </div>
+                    <div className="text-[10px] text-[#25cca7] font-bold mt-0.5">
+                      R$ {parseFloat(user?.wallet?.balanceReal || 0).toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-950 border border-slate-855 rounded-2xl p-3 flex flex-col justify-between">
+                  <span className="text-[9px] text-slate-500 uppercase font-black">Guardado nas Caixinhas</span>
+                  <div className="mt-1.5">
+                    <div className="text-sm font-black text-indigo-400">
+                      🪙 {jars.reduce((sum, j) => sum + j.currentCoins, 0)}
+                    </div>
+                    <div className="text-[10px] text-indigo-300 font-bold mt-0.5">
+                      R$ {jars.reduce((sum, j) => sum + parseFloat(j.currentReal), 0).toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Jars Grid */}
+              {jars.length === 0 ? (
+                <div className="bg-slate-950 border border-slate-800/60 rounded-3xl p-6 text-center">
+                  <Target className="w-8 h-8 text-indigo-400 mx-auto mb-2" />
+                  <h4 className="text-sm font-bold text-white">Carregando caixinhas...</h4>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {jars.map((jar) => {
+                    const colors = getJarColors(jar.color);
+                    const isSpend = jar.purpose === 'SPEND';
+                    const isSave = jar.purpose === 'SAVE';
+                    const isGive = jar.purpose === 'GIVE';
+                    const isInvest = jar.purpose === 'INVEST';
+
+                    let purposeLabel = "Customizada";
+                    if (isSpend) purposeLabel = "Gastar (Livre)";
+                    if (isSave) purposeLabel = "Poupar (Futuro)";
+                    if (isGive) purposeLabel = "Doar (Caridade)";
+                    if (isInvest) purposeLabel = "Investir (Crescer)";
+
+                    return (
+                      <div key={jar.id} className="bg-slate-950 border border-slate-855 hover:border-slate-800 rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden transition-all duration-300">
+                        <div>
+                          {/* Card Header */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2.5">
+                              <div className={`p-2 rounded-xl ${colors.bg} border ${colors.border}`}>
+                                {getJarIcon(jar.icon, jar.color)}
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-black text-white leading-tight">{jar.name}</h4>
+                                <span className={`inline-block text-[8px] font-bold px-1.5 py-0.2 rounded-md uppercase mt-1 ${colors.badge}`}>
+                                  {purposeLabel}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            {jar.purpose === 'CUSTOM' && (
+                              <button
+                                onClick={() => handleDeleteJar(jar.id)}
+                                className="p-1 text-slate-500 hover:text-red-400 hover:bg-red-955/20 rounded-lg transition-colors"
+                                title="Excluir caixinha"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Balances inside the jar */}
+                          <div className="mt-4 flex items-center justify-between border-t border-slate-900 pt-3">
+                            <div className="text-center flex-1">
+                              <span className="text-[8px] text-slate-500 font-bold uppercase block">Moedas</span>
+                              <span className="text-xs font-black text-white mt-0.5 block">🪙 {jar.currentCoins}</span>
+                            </div>
+                            <div className="h-6 w-px bg-slate-900 mx-3"></div>
+                            <div className="text-center flex-1">
+                              <span className="text-[8px] text-slate-500 font-bold uppercase block">Dinheiro</span>
+                              <span className="text-xs font-black text-[#25cca7] mt-0.5 block">R$ {parseFloat(jar.currentReal).toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card Actions */}
+                        <div className="mt-4 flex gap-1.5 pt-1">
+                          <button
+                            onClick={() => {
+                              setTransferJar(jar);
+                              setTransferDirection('IN');
+                              setTransferType('COINS');
+                              setTransferAmount('');
+                            }}
+                            className="flex-1 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 font-bold py-2 rounded-xl text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1"
+                          >
+                            <ArrowRightLeft className="w-3 h-3 text-indigo-400" /> Transferir
+                          </button>
+                          
+                          {isInvest && (
+                            <button
+                              onClick={() => {
+                                setInterestJar(jar);
+                                setSimulatorAmount(jar.currentCoins.toString() || '10');
+                                runInterestSimulator(jar.currentCoins.toString() || '10', simulatorRate);
+                              }}
+                              className="bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/20 font-black py-2 px-3 rounded-xl text-[9px] uppercase tracking-wider transition-all flex items-center gap-0.5 shrink-0"
+                              title="Simular Juros"
+                            >
+                              <TrendingUp className="w-3.5 h-3.5" /> Simulador
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Financial Education Carousels Section */}
+              <div className="bg-slate-950 border border-slate-850/80 rounded-3xl p-4 mt-6">
+                <h4 className="text-xs font-black text-slate-300 uppercase tracking-widest pl-1 mb-3">
+                  Aprenda com a Sofia! 💡
+                </h4>
+                
+                {/* Scrollable list of tips */}
+                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none snap-x snap-mandatory">
+                  <div className="snap-start shrink-0 w-[85%] bg-slate-900 border border-slate-850 rounded-2xl p-3.5 space-y-2">
+                    <span className="text-[8px] font-black uppercase text-amber-400 px-1.5 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded-md">
+                      Dica #1: Necessidade vs Desejo
+                    </span>
+                    <h5 className="text-xs font-bold text-white">O que comprar com as caixinhas?</h5>
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                      Necessidades são coisas essenciais como comida, saúde e estudos. Desejos são coisas divertidas mas não obrigatórias (como brinquedos e games). Tente economizar na Caixinha de Poupança para os desejos maiores!
+                    </p>
+                  </div>
+
+                  <div className="snap-start shrink-0 w-[85%] bg-slate-900 border border-slate-850 rounded-2xl p-3.5 space-y-2">
+                    <span className="text-[8px] font-black uppercase text-emerald-400 px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-md">
+                      Dica #2: A Caixinha de Poupar
+                    </span>
+                    <h5 className="text-xs font-bold text-white">Realize seus sonhos!</h5>
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                      Quando você ganha moedas pelas suas tarefas diárias, tente guardar pelo menos metade (50%) na sua caixinha de Poupança. Assim, quando quiser comprar um item especial, terá o saldo pronto para resgatar!
+                    </p>
+                  </div>
+
+                  <div className="snap-start shrink-0 w-[85%] bg-slate-900 border border-slate-850 rounded-2xl p-3.5 space-y-2">
+                    <span className="text-[8px] font-black uppercase text-indigo-400 px-1.5 py-0.5 bg-indigo-500/10 border border-indigo-500/20 rounded-md">
+                      Dica #3: Juros e Investimentos
+                    </span>
+                    <h5 className="text-xs font-bold text-white">Como fazer o dinheiro trabalhar?</h5>
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                      Ao colocar dinheiro em Investimentos, ele rende "juros". Isso significa que o banco ou a caixinha te recompensa com moedas extras por você deixar ele guardado! Use o simulador ao lado da caixinha para ver a mágica!
+                    </p>
+                  </div>
+
+                  <div className="snap-start shrink-0 w-[85%] bg-slate-900 border border-slate-850 rounded-2xl p-3.5 space-y-2">
+                    <span className="text-[8px] font-black uppercase text-rose-400 px-1.5 py-0.5 bg-rose-500/10 border border-rose-500/20 rounded-md">
+                      Dica #4: Caixinha de Doação
+                    </span>
+                    <h5 className="text-xs font-bold text-white">Compartilhe alegria!</h5>
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                      Separar uma pequena parte de tudo que você ganha para doação ou presentes ensina generosidade. É muito gratificante poder ajudar outras crianças ou apoiar causas legais que você gosta!
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
         </main>
 
         {/* Dynamic Piggy Shaking animation trigger */}
@@ -1160,6 +1757,18 @@ export default function SofiaDashboard() {
           >
             <Target className="w-5 h-5" />
             <span className="text-[8px] font-bold uppercase tracking-wider px-1">Sonhos</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('jars')}
+            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all duration-300 ${
+              activeTab === 'jars' 
+                ? 'text-indigo-400 bg-indigo-500/10 scale-105 shadow-inner' 
+                : 'text-slate-500 hover:text-slate-400 hover:bg-slate-900/40'
+            }`}
+          >
+            <PiggyBank className="w-5 h-5" />
+            <span className="text-[8px] font-bold uppercase tracking-wider px-1">Caixinhas</span>
           </button>
 
           <button
@@ -1269,7 +1878,7 @@ export default function SofiaDashboard() {
 
             <button
               onClick={() => setLevelUpModal(null)}
-              className="mt-6 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all"
+              className="mt-6 w-full bg-[#25cca7] hover:bg-[#1fb393] text-slate-955 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all"
             >
               Continuar 🚀
             </button>
@@ -1277,17 +1886,21 @@ export default function SofiaDashboard() {
         </div>
       )}
 
-      {/* CREATE GOAL MODAL */}
-      {showCreateGoal && (
+      {/* CREATE / EDIT GOAL MODAL */}
+      {(showCreateGoal || editingGoal) && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
           <div className="bg-slate-900 border-t sm:border border-slate-800 rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-sm shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center gap-1.5 mb-1">
               <Target className="w-5 h-5 text-[#25cca7]" />
-              <h3 className="text-base font-bold text-white">Adicionar Novo Sonho</h3>
+              <h3 className="text-base font-bold text-white">
+                {editingGoal ? 'Editar Sonho' : 'Adicionar Novo Sonho'}
+              </h3>
             </div>
-            <p className="text-[11px] text-slate-500">Defina uma meta para economizar e realizar.</p>
+            <p className="text-[11px] text-slate-500">
+              {editingGoal ? 'Modifique a meta do seu sonho.' : 'Defina uma meta para economizar e realizar.'}
+            </p>
 
-            <form onSubmit={handleCreateGoal} className="mt-4 space-y-4">
+            <form onSubmit={editingGoal ? handleUpdateGoal : handleCreateGoal} className="mt-4 space-y-4">
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nome do Sonho</label>
                 <input
@@ -1353,7 +1966,11 @@ export default function SofiaDashboard() {
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowCreateGoal(false)}
+                  onClick={() => {
+                    setShowCreateGoal(false);
+                    setEditingGoal(null);
+                    setGoalTitle('');
+                  }}
                   className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-400 bg-slate-850 hover:bg-slate-800 transition-colors"
                 >
                   Cancelar
@@ -1361,12 +1978,341 @@ export default function SofiaDashboard() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-black text-slate-950 bg-[#25cca7] hover:bg-[#1fb393] transition-colors shadow-lg"
+                  className="flex-1 py-2.5 rounded-xl text-xs font-black text-slate-955 bg-[#25cca7] hover:bg-[#1fb393] transition-colors shadow-lg"
                 >
                   Salvar Sonho
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create Jar Modal */}
+      {showCreateJar && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+          <div className="bg-slate-900 border-t sm:border border-slate-800 rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-float">
+            <div className="flex items-center gap-2 mb-2">
+              <PiggyBank className="w-5 h-5 text-indigo-400" />
+              <h3 className="text-base font-bold text-white">Nova Caixinha</h3>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-normal">
+              Crie uma caixinha personalizada para organizar suas moedas e dinheiro.
+            </p>
+
+            <form onSubmit={handleCreateJar} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  Nome da Caixinha
+                </label>
+                <input
+                  type="text"
+                  value={jarName}
+                  onChange={(e) => setJarName(e.target.value)}
+                  placeholder="Ex: Novo videogame"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-3 text-xs mt-1 text-white focus:outline-hidden focus:border-indigo-500 transition-colors"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  Escolha um Ícone
+                </label>
+                <div className="grid grid-cols-5 gap-2 mt-1">
+                  {[
+                    { key: 'ShoppingBag', label: '🛍️' },
+                    { key: 'PiggyBank', label: '🐷' },
+                    { key: 'Heart', label: '❤️' },
+                    { key: 'TrendingUp', label: '📈' },
+                    { key: 'Target', label: '🎯' }
+                  ].map((iconItem) => (
+                    <button
+                      key={iconItem.key}
+                      type="button"
+                      onClick={() => setJarIcon(iconItem.key)}
+                      className={`p-2 rounded-xl text-base border transition-all ${
+                        jarIcon === iconItem.key
+                          ? 'border-indigo-500 bg-indigo-500/10'
+                          : 'border-slate-800 bg-slate-950 hover:border-slate-700'
+                      }`}
+                    >
+                      {iconItem.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  Escolha uma Cor
+                </label>
+                <div className="grid grid-cols-4 gap-2 mt-1">
+                  {[
+                    { key: 'amber', bg: 'bg-[#fef01e]', label: 'Amarelo' },
+                    { key: 'emerald', bg: 'bg-[#76c043]', label: 'Verde' },
+                    { key: 'rose', bg: 'bg-[#e6728a]', label: 'Rosa' },
+                    { key: 'indigo', bg: 'bg-indigo-500', label: 'Azul' }
+                  ].map((colorItem) => (
+                    <button
+                      key={colorItem.key}
+                      type="button"
+                      onClick={() => setJarColor(colorItem.key)}
+                      className={`p-2 rounded-xl text-[10px] font-bold border transition-all flex flex-col items-center gap-1.5 ${
+                        jarColor === colorItem.key
+                          ? 'border-indigo-500 bg-indigo-500/10'
+                          : 'border-slate-800 bg-slate-950 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className={`w-4 h-4 rounded-full ${colorItem.bg}`} />
+                      <span className="text-[8px] text-slate-400">{colorItem.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateJar(false)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-400 bg-slate-850 hover:bg-slate-800 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-750 transition-colors shadow-lg"
+                >
+                  Criar Caixinha
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Transfer Funds Modal */}
+      {transferJar && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+          <div className="bg-slate-900 border-t sm:border border-slate-800 rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-float">
+            <div className="flex items-center gap-2 mb-2">
+              <ArrowRightLeft className="w-5 h-5 text-indigo-400" />
+              <h3 className="text-base font-bold text-white">Transferir para Caixinha</h3>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-normal">
+              Mova suas moedas ou dinheiro entre a carteira e a caixinha <strong className="text-white">"{transferJar.name}"</strong>.
+            </p>
+
+            <form onSubmit={handleTransferJar} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  Sentido da Transferência
+                </label>
+                <div className="grid grid-cols-2 gap-2 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setTransferDirection('IN')}
+                    className={`py-2 px-1 rounded-xl text-[10px] font-bold border transition-all ${
+                      transferDirection === 'IN'
+                        ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400'
+                        : 'border-slate-800 text-slate-500 bg-slate-950'
+                    }`}
+                  >
+                    📥 Guardar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTransferDirection('OUT')}
+                    className={`py-2 px-1 rounded-xl text-[10px] font-bold border transition-all ${
+                      transferDirection === 'OUT'
+                        ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400'
+                        : 'border-slate-800 text-slate-500 bg-slate-950'
+                    }`}
+                  >
+                    📤 Resgatar
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  Tipo de Moeda
+                </label>
+                <div className="grid grid-cols-2 gap-2 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setTransferType('COINS')}
+                    className={`py-2 px-1 rounded-xl text-[10px] font-bold border transition-all ${
+                      transferType === 'COINS'
+                        ? 'border-[#fef01e] bg-[#fef01e]/10 text-[#fef01e]'
+                        : 'border-slate-800 text-slate-500 bg-slate-950'
+                    }`}
+                  >
+                    🪙 Moedas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTransferType('REAL_MONEY')}
+                    className={`py-2 px-1 rounded-xl text-[10px] font-bold border transition-all ${
+                      transferType === 'REAL_MONEY'
+                        ? 'border-[#25cca7] bg-[#25cca7]/10 text-[#25cca7]'
+                        : 'border-slate-800 text-slate-500 bg-slate-950'
+                    }`}
+                  >
+                    💵 R$ Real
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  Valor da Transferência
+                </label>
+                <div className="relative mt-1">
+                  <input
+                    type="number"
+                    step={transferType === 'COINS' ? '1' : '0.01'}
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(e.target.value)}
+                    placeholder="Ex: 10"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-3 text-xs text-white focus:outline-hidden focus:border-indigo-500 transition-colors"
+                    required
+                    autoFocus
+                  />
+                </div>
+                
+                {/* Available balance helpers */}
+                <div className="text-[10px] mt-2 space-y-1 bg-slate-950/60 p-2.5 rounded-lg border border-slate-900">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-bold">Saldo na Carteira:</span>
+                    <span className="text-white font-bold">
+                      {transferType === 'COINS'
+                        ? `🪙 ${user?.wallet?.balanceCoins || 0}`
+                        : `R$ ${parseFloat(user?.wallet?.balanceReal || 0).toFixed(2)}`}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-bold">Saldo na Caixinha:</span>
+                    <span className="text-white font-bold">
+                      {transferType === 'COINS'
+                        ? `🪙 ${transferJar.currentCoins}`
+                        : `R$ ${parseFloat(transferJar.currentReal).toFixed(2)}`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTransferJar(null)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-400 bg-slate-850 hover:bg-slate-800 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-750 transition-colors shadow-lg"
+                >
+                  Transferir
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Interest Simulator Modal */}
+      {interestJar && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+          <div className="bg-slate-900 border-t sm:border border-slate-800 rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-float">
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="w-5 h-5 text-indigo-400" />
+              <h3 className="text-base font-bold text-white">Simulador de Juros</h3>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-normal">
+              Veja o poder dos juros compostos! Veja como suas moedas podem crescer ao longo do tempo.
+            </p>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  Valor Inicial (Moedas)
+                </label>
+                <input
+                  type="number"
+                  value={simulatorAmount}
+                  onChange={(e) => {
+                    setSimulatorAmount(e.target.value);
+                    runInterestSimulator(e.target.value, simulatorRate);
+                  }}
+                  placeholder="Ex: 10"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-3 text-xs mt-1 text-white focus:outline-hidden focus:border-indigo-500 transition-colors"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    Rendimento por Mês: {simulatorRate}%
+                  </label>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="50"
+                  value={simulatorRate}
+                  onChange={(e) => {
+                    setSimulatorRate(e.target.value);
+                    runInterestSimulator(simulatorAmount, e.target.value);
+                  }}
+                  className="w-full accent-indigo-500 h-1.5 bg-slate-950 rounded-lg appearance-none cursor-pointer mt-2"
+                />
+              </div>
+
+              {/* Simulation Table Results */}
+              <div className="bg-slate-950/80 border border-slate-855 rounded-2xl p-3.5 space-y-2.5 max-h-48 overflow-y-auto">
+                <h4 className="text-[9px] font-black uppercase text-indigo-400 tracking-wider">Previsão de Crescimento</h4>
+                {simulatorResult.length > 0 ? (
+                  <div className="space-y-1.5 text-[10px]">
+                    <div className="grid grid-cols-3 text-[8px] text-slate-500 font-bold uppercase tracking-wider border-b border-slate-900 pb-1">
+                      <span>Período</span>
+                      <span className="text-center">Rendimento</span>
+                      <span className="text-right">Total</span>
+                    </div>
+                    {simulatorResult.map((res) => (
+                      <div key={res.period} className="grid grid-cols-3 text-white border-b border-slate-900/40 py-1 last:border-b-0">
+                        <span className="text-slate-400 font-medium">{res.period}º Mês</span>
+                        <span className="text-[#25cca7] font-bold text-center">+{res.interest}</span>
+                        <span className="text-indigo-400 font-black text-right">🪙 {res.balance}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-slate-500 text-center py-2">
+                    Insira o valor inicial para simular.
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-indigo-950/20 border border-indigo-500/10 rounded-xl p-3">
+                <p className="text-[9px] text-indigo-300 leading-normal">
+                  💡 <strong>Metáfora da Sofia:</strong> Seus investimentos são como sementes! A taxa de juros rega suas moedas, fazendo-as crescer mais e mais a cada mês.
+                </p>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setInterestJar(null)}
+                  className="w-full py-2.5 rounded-xl text-xs font-bold text-slate-400 bg-slate-850 hover:bg-slate-800 transition-colors"
+                >
+                  Fechar Simulador
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

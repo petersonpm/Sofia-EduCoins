@@ -15,13 +15,14 @@ import goalRoutes from './routes/goals';
 import expenseRoutes from './routes/expenses';
 import shopRoutes from './routes/shop';
 import notificationRoutes from './routes/notifications';
+import jarRoutes from './routes/jars';
 
 const app = express();
 
 // Middlewares
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   credentials: true,
 }));
 app.use(express.json());
@@ -79,6 +80,7 @@ app.use('/api/goals', goalRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/shop', shopRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/jars', jarRoutes);
 
 // Global Error Handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

@@ -38,8 +38,13 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Calendar,
-  CheckCircle2
+  CheckCircle2,
+  RotateCcw,
+  Library,
+  BarChart2
 } from 'lucide-react';
 import AvatarRenderer from '../components/AvatarRenderer';
 
@@ -157,8 +162,13 @@ export default function ParentDashboard() {
     const dayTasks = tasks.filter(t => t.assignedToId === selectedChildId);
     const dayFiltered = dayTasks.filter(task => {
       if (task.isDaily) {
-        return (task.status === 'APPROVED' && isSameDay(task.approvedAt, day)) ||
-               (task.status !== 'APPROVED' && isSameDay(selectedDate, day));
+        if (task.status === 'APPROVED' && task.approvedAt) {
+          return isSameDay(task.approvedAt, day);
+        }
+        if ((task.status === 'COMPLETED' || task.status === 'REJECTED') && task.completedAt) {
+          return isSameDay(task.completedAt, day);
+        }
+        return isSameDay(new Date(), day);
       }
       if (task.deadline) {
         return isSameDay(task.deadline, day);
@@ -174,7 +184,7 @@ export default function ParentDashboard() {
     return { hasApproved, hasCompleted, hasRejected, hasPending };
   };
 
-  // Navigation: 'summary', 'approvals', 'tasks', 'family'
+  // Navigation: 'summary', 'approvals', 'register', 'agenda', 'family'
   const [activeTab, setActiveTab] = useState('summary');
 
   // States
@@ -183,6 +193,8 @@ export default function ParentDashboard() {
   const [tasks, setTasks] = useState([]);
   const [goals, setGoals] = useState([]);
   const [expenseRequests, setExpenseRequests] = useState([]);
+  const [selectedInstIndices, setSelectedInstIndices] = useState({});
+  const [expandedTasks, setExpandedTasks] = useState({});
 
   // Modals
   const [showCreateTask, setShowCreateTask] = useState(false);
@@ -234,6 +246,23 @@ export default function ParentDashboard() {
   const [editEmail, setEditEmail] = useState('');
   const [editPassword, setEditPassword] = useState('');
 
+  // Wallet adjustment modal
+  const [showAdjustWallet, setShowAdjustWallet] = useState(false);
+  const [adjustWalletChild, setAdjustWalletChild] = useState(null);
+  const [adjustCoins, setAdjustCoins] = useState('');
+  const [adjustReal, setAdjustReal] = useState('');
+
+  // Report modal
+  const [showReport, setShowReport] = useState(false);
+  const [reportChild, setReportChild] = useState(null);
+  const [reportData, setReportData] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+
+  const openReport = (child) => {
+    setSelectedChildId(child.id);
+    setActiveTab('summary');
+  };
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -241,7 +270,12 @@ export default function ParentDashboard() {
   // Load parent data
   const loadData = async () => {
     try {
-      const refreshedUser = await refreshUser();
+      const [refreshedUser, tasksRes, expensesRes] = await Promise.all([
+        refreshUser(),
+        api.get('/tasks'),
+        api.get('/expenses/requests')
+      ]);
+
       if (refreshedUser && refreshedUser.children) {
         setChildren(refreshedUser.children);
         
@@ -250,10 +284,7 @@ export default function ParentDashboard() {
         }
       }
 
-      const tasksRes = await api.get('/tasks');
       setTasks(tasksRes.data);
-
-      const expensesRes = await api.get('/expenses/requests');
       setExpenseRequests(expensesRes.data);
     } catch (err) {
       console.error('Erro ao buscar dados do painel:', err);
@@ -277,6 +308,30 @@ export default function ParentDashboard() {
   useEffect(() => {
     loadChildGoals();
   }, [selectedChildId]);
+
+  useEffect(() => {
+    if (activeTab === 'summary' && selectedChildId && children.length > 0) {
+      const child = children.find(c => c.id === selectedChildId);
+      if (child) {
+        setReportChild(child);
+        setReportData(null);
+        setReportLoading(true);
+        api.get(`/tasks/report?childId=${selectedChildId}`)
+          .then(res => {
+            setReportData(res.data);
+          })
+          .catch(err => {
+            setReportData(null);
+          })
+          .finally(() => {
+            setReportLoading(false);
+          });
+      }
+    } else if (activeTab === 'summary' && !selectedChildId) {
+      setReportChild(null);
+      setReportData(null);
+    }
+  }, [selectedChildId, activeTab, children]);
 
   const handleAddChild = async (e) => {
     e.preventDefault();
@@ -346,6 +401,35 @@ export default function ParentDashboard() {
       loadData();
     } catch (err) {
       setError(err.response?.data?.error || 'Erro ao excluir membro.');
+    }
+  };
+
+  const openAdjustWallet = (child) => {
+    setAdjustWalletChild(child);
+    setAdjustCoins(String(child.wallet?.balanceCoins ?? ''));
+    setAdjustReal(String(parseFloat(child.wallet?.balanceReal || 0).toFixed(2)));
+    setError('');
+    setShowAdjustWallet(true);
+  };
+
+  const handleAdjustWallet = async (e) => {
+    e.preventDefault();
+    if (!adjustWalletChild) return;
+    setError('');
+    setLoading(true);
+    try {
+      const payload = { childId: adjustWalletChild.id };
+      if (adjustCoins !== '') payload.balanceCoins = adjustCoins;
+      if (adjustReal !== '') payload.balanceReal = adjustReal;
+      await api.patch('/wallet/adjust', payload);
+      setSuccess(`Saldo de "${adjustWalletChild.name}" ajustado com sucesso!`);
+      setShowAdjustWallet(false);
+      setAdjustWalletChild(null);
+      loadData();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Erro ao ajustar saldo.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -459,19 +543,25 @@ export default function ParentDashboard() {
   };
 
   const handleApproveTask = async (taskId) => {
+    const originalTasks = [...tasks];
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'APPROVED', approvedAt: new Date().toISOString() } : t));
     try {
       await api.post(`/tasks/${taskId}/approve`);
       loadData();
     } catch (err) {
+      setTasks(originalTasks);
       alert('Erro ao aprovar tarefa.');
     }
   };
 
   const handleRejectTask = async (taskId) => {
+    const originalTasks = [...tasks];
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'REJECTED' } : t));
     try {
       await api.post(`/tasks/${taskId}/reject`);
       loadData();
     } catch (err) {
+      setTasks(originalTasks);
       alert('Erro ao recusar tarefa.');
     }
   };
@@ -486,21 +576,52 @@ export default function ParentDashboard() {
     }
   };
 
+  const handleDeleteAllInstances = async (instances) => {
+    if (!window.confirm('Excluir esta tarefa e todas as suas repetições permanentemente?')) return;
+    try {
+      // Run optimistic updates locally
+      const taskIds = instances.map(i => i.id);
+      setTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
+      
+      await Promise.all(instances.map(inst => api.delete(`/tasks/${inst.id}`)));
+      loadData();
+    } catch (err) {
+      alert('Erro ao excluir tarefa e suas repetições.');
+    }
+  };
+
   const handleApproveExpense = async (expenseId) => {
+    const originalExpenses = [...expenseRequests];
+    setExpenseRequests(prev => prev.map(e => e.id === expenseId ? { ...e, status: 'APPROVED' } : e));
     try {
       await api.post(`/expenses/${expenseId}/approve`);
       loadData();
     } catch (err) {
+      setExpenseRequests(originalExpenses);
       alert(err.response?.data?.error || 'Erro ao aprovar compra.');
     }
   };
 
   const handleRejectExpense = async (expenseId) => {
+    const originalExpenses = [...expenseRequests];
+    setExpenseRequests(prev => prev.map(e => e.id === expenseId ? { ...e, status: 'REJECTED' } : e));
     try {
       await api.post(`/expenses/${expenseId}/reject`);
       loadData();
     } catch (err) {
+      setExpenseRequests(originalExpenses);
       alert('Erro ao rejeitar compra.');
+    }
+  };
+
+  const handleResetDaily = async () => {
+    if (!window.confirm('Isso vai resetar todas as tarefas diárias para PENDENTE e remover as repetições do histórico. Confirmar?')) return;
+    try {
+      const res = await api.post('/tasks/reset-daily', selectedChildId ? { childId: selectedChildId } : {});
+      setSuccess(res.data.message);
+      loadData();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Erro ao reiniciar o dia.');
     }
   };
 
@@ -508,8 +629,8 @@ export default function ParentDashboard() {
 
   const pendingApprovalsCount = tasks.filter(t => t.status === 'COMPLETED').length;
   const approvedTasksCount = tasks.filter(t => t.status === 'APPROVED').length;
-  const totalPaidReal = children.reduce((acc, c) => acc + parseFloat(c.wallet?.totalEarnedReal || 0), 0);
-  const totalPaidCoins = children.reduce((acc, c) => acc + (c.wallet?.totalEarnedCoins || 0), 0);
+  const totalPaidReal = selectedChild ? parseFloat(selectedChild.wallet?.totalEarnedReal || 0) : 0;
+  const totalPaidCoins = selectedChild ? (selectedChild.wallet?.totalEarnedCoins || 0) : 0;
   
   const pendingExpenses = expenseRequests.filter(e => e.status === 'PENDING');
   const totalApprovalsCount = pendingApprovalsCount + pendingExpenses.length;
@@ -597,84 +718,239 @@ export default function ParentDashboard() {
           {/* TAB 1: SUMMARY DETAILS */}
           {activeTab === 'summary' && (
             <div className="space-y-4">
-              
-              {/* Quick statistics widgets grid */}
-              <section className="grid grid-cols-2 gap-3">
-                <div className="bg-slate-950 border border-slate-850 p-3 rounded-2xl flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-[#e6728a]/10 flex items-center justify-center shrink-0">
-                    <ClipboardList className="w-4 h-4 text-[#e6728a]" />
-                  </div>
-                  <div>
-                    <div className="text-[8px] text-slate-500 font-bold uppercase">Aprovações</div>
-                    <div className="text-sm font-black text-white">{pendingApprovalsCount}</div>
-                  </div>
+              {/* Child selector chips */}
+              {children.filter(c => c.role === 'CHILD').length > 0 && (
+                <div className="flex gap-2 pb-1 overflow-x-auto select-none shrink-0 custom-scrollbar-horizontal border-b border-slate-800/50 pb-2">
+                  {children.filter(c => c.role === 'CHILD').map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => setSelectedChildId(c.id)}
+                      className={`shrink-0 px-3 py-1 rounded-xl text-[10px] font-black border transition-all ${
+                        selectedChildId === c.id
+                          ? 'bg-[#a48cb3] border-[#a48cb3] text-slate-955'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
                 </div>
+              )}
 
-                <div className="bg-slate-950 border border-slate-850 p-3 rounded-2xl flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-[#76c043]/10 flex items-center justify-center shrink-0">
-                    <Check className="w-4 h-4 text-[#76c043]" />
-                  </div>
-                  <div>
-                    <div className="text-[8px] text-slate-500 font-bold uppercase">Feito</div>
-                    <div className="text-sm font-black text-white">{approvedTasksCount}</div>
-                  </div>
+              {children.filter(c => c.role === 'CHILD').length === 0 ? (
+                <div className="bg-slate-950 border border-slate-850 rounded-2xl p-6 text-center text-xs text-slate-500">
+                  Cadastre um filho na aba Família para visualizar o resumo de desempenho.
                 </div>
-
-                <div className="bg-slate-950 border border-slate-850 p-3 rounded-2xl flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-[#25cca7]/10 flex items-center justify-center shrink-0">
-                    <DollarSign className="w-4 h-4 text-[#25cca7]" />
-                  </div>
-                  <div>
-                    <div className="text-[8px] text-slate-500 font-bold uppercase">Dinheiro Pago</div>
-                    <div className="text-xs font-black text-white">R$ {totalPaidReal.toFixed(2)}</div>
-                  </div>
+              ) : reportLoading ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-3">
+                  <div className="w-8 h-8 rounded-full border-2 border-indigo-500/20 border-t-indigo-500 animate-spin" />
+                  <p className="text-xs text-slate-400">Carregando desempenho...</p>
                 </div>
-
-                <div className="bg-slate-950 border border-slate-850 p-3 rounded-2xl flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-[#fef01e]/10 flex items-center justify-center shrink-0">
-                    <Coins className="w-4 h-4 text-[#fef01e]" />
-                  </div>
-                  <div>
-                    <div className="text-[8px] text-slate-500 font-bold uppercase">Moedas Pagas</div>
-                    <div className="text-xs font-black text-white">{totalPaidCoins}</div>
-                  </div>
+              ) : !reportData ? (
+                <div className="py-8 text-center text-xs text-slate-500">
+                  Selecione um filho acima para carregar o resumo de desempenho.
                 </div>
-              </section>
+              ) : (
+                <>
+                  {/* Header / XP details */}
+                  <div className="bg-slate-950 border border-slate-850 p-4 rounded-3xl flex justify-between items-center">
+                    <div>
+                      <h3 className="text-sm font-black text-white">{reportChild?.name}</h3>
+                      <p className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Nível {reportData.child?.level || 1} • {reportData.child?.xp || 0} XP
+                      </p>
+                    </div>
 
-              {/* Category charts statistics */}
-              <section className="bg-slate-950 border border-slate-800 rounded-3xl p-4">
-                <h3 className="text-xs font-black uppercase text-slate-400 border-b border-slate-850 pb-2 mb-3 flex items-center gap-1.5">
-                  <BarChart3 className="w-4 h-4 text-[#7bc3db]" />
-                  Tarefas por Categoria
-                </h3>
-                
-                {Object.keys(categoryCounts).length === 0 ? (
-                  <p className="text-[10px] text-slate-500 text-center py-4">Nenhuma tarefa criada.</p>
-                ) : (
+                    <div className="flex flex-col items-end gap-1.5">
+                      {reportData.child?.streak > 0 ? (
+                        <span className="flex items-center gap-0.5 text-orange-400 text-[9px] font-black bg-orange-550/10 border border-orange-550/20 px-2 py-0.5 rounded-lg">
+                          <Flame className="w-3.5 h-3.5 fill-orange-400" /> {reportData.child.streak} {reportData.child.streak === 1 ? 'dia' : 'dias'}
+                        </span>
+                      ) : (
+                        <span className="text-[8px] text-slate-500">Sem sequência ativa</span>
+                      )}
+
+                      <button
+                        onClick={() => openAdjustWallet(reportChild)}
+                        className="flex items-center gap-1 bg-red-950/20 border border-red-900/30 text-red-400 hover:bg-red-900/10 px-2.5 py-1 rounded-xl text-[9px] font-black transition-all cursor-pointer"
+                        title="Zerar ou ajustar o saldo do dinheiro"
+                      >
+                        <Wallet className="w-3 h-3" /> Zerar / Ajustar Saldo
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Quick statistics widgets grid */}
+                  <section className="grid grid-cols-3 gap-2.5">
+                    <div className="bg-slate-950 border border-slate-850 p-2.5 rounded-2xl flex flex-col justify-between">
+                      <span className="text-[8px] text-slate-500 font-bold uppercase">Aprovadas</span>
+                      <div className="text-sm font-black text-white mt-1 flex items-center gap-1">
+                        <Trophy className="w-3.5 h-3.5 text-yellow-500" />
+                        {reportData.summary?.totalApproved || 0}
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-950 border border-slate-850 p-2.5 rounded-2xl flex flex-col justify-between">
+                      <span className="text-[8px] text-slate-500 font-bold uppercase">Carteira (R$)</span>
+                      <div className="text-sm font-black text-[#25cca7] mt-1">
+                        R$ {reportData.wallet?.balanceReal.toFixed(2)}
+                      </div>
+                      <span className="text-[7px] text-slate-500 mt-0.5">Ganho: R$ {reportData.wallet?.totalEarnedReal.toFixed(2)}</span>
+                    </div>
+
+                    <div className="bg-slate-950 border border-slate-850 p-2.5 rounded-2xl flex flex-col justify-between">
+                      <span className="text-[8px] text-slate-500 font-bold uppercase">Carteira (Coins)</span>
+                      <div className="text-sm font-black text-yellow-400 mt-1 flex items-center gap-0.5">
+                        <Coins className="w-3.5 h-3.5 text-yellow-400" />
+                        {reportData.wallet?.balanceCoins}
+                      </div>
+                      <span className="text-[7px] text-slate-500 mt-0.5">Ganho: {reportData.wallet?.totalEarnedCoins}</span>
+                    </div>
+                  </section>
+
+                  {/* Recommendations / Improvement Tips */}
+                  <div className="bg-amber-950/10 border border-amber-900/20 p-4 rounded-3xl space-y-2.5">
+                    <h4 className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-amber-400" />
+                      O que {reportChild?.name} pode melhorar
+                    </h4>
+                    {reportData.recommendations && reportData.recommendations.length > 0 ? (
+                      <ul className="space-y-1.5">
+                        {reportData.recommendations.map((rec, idx) => (
+                          <li key={idx} className="text-[9.5px] text-slate-350 leading-relaxed flex items-start gap-1.5">
+                            <span className="text-amber-500 font-bold mt-0.5 shrink-0">•</span>
+                            <span>{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-[9.5px] text-slate-400">
+                        🎉 {reportChild?.name} está com excelente desempenho em todas as áreas! Continue acompanhando.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Daily Activity Heatmap/Chart */}
+                  <div className="bg-slate-950 border border-slate-850 p-4 rounded-3xl space-y-3">
+                    <h4 className="text-xs font-black text-slate-400 flex items-center gap-1.5">
+                      <TrendingUp className="w-4 h-4 text-indigo-400" />
+                      Consistência Diária (Últimos 14 dias)
+                    </h4>
+                    <div className="h-24 flex items-end justify-between gap-1 pt-4 pb-1 px-1">
+                      {Object.entries(reportData.dailyActivity || {}).map(([dateStr, count]) => {
+                        const date = new Date(dateStr + 'T00:00:00');
+                        const dayLabel = date.getDate();
+                        const weekDay = date.toLocaleDateString('pt-BR', { weekday: 'narrow' });
+                        const maxCount = Math.max(...Object.values(reportData.dailyActivity || {}), 1);
+                        const percentHeight = (count / maxCount) * 100;
+
+                        return (
+                          <div key={dateStr} className="flex-1 flex flex-col items-center gap-1 group relative">
+                            {/* Tooltip */}
+                            <div className="absolute -top-7 scale-0 group-hover:scale-100 transition-all bg-slate-950 text-slate-200 border border-slate-800 text-[8px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap z-10">
+                              {count} {count === 1 ? 'tarefa' : 'tarefas'} ({date.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })})
+                            </div>
+                            
+                            {/* Bar */}
+                            <div className="w-full bg-slate-900/60 border border-slate-900 rounded-t-md h-16 flex items-end overflow-hidden">
+                              <div 
+                                style={{ height: `${percentHeight}%` }} 
+                                className={`w-full rounded-t-sm transition-all duration-500 ${
+                                  count > 0 
+                                    ? 'bg-gradient-to-t from-indigo-600 to-indigo-400 group-hover:from-indigo-500 group-hover:to-indigo-300' 
+                                    : 'bg-transparent'
+                                }`}
+                              />
+                            </div>
+
+                            {/* Label */}
+                            <div className="flex flex-col items-center text-[8px] mt-0.5">
+                              <span className="text-slate-555 font-bold leading-none">{weekDay}</span>
+                              <span className="text-slate-400 font-bold mt-0.5">{dayLabel}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Category Breakdown Charts */}
                   <div className="space-y-3">
-                    {Object.entries(categoryCounts).map(([cat, count]) => {
-                      const widthPercent = (count / maxCategoryCount) * 100;
-                      return (
-                        <div key={cat}>
-                          <div className="flex justify-between text-[9px] font-bold text-slate-400 mb-1">
-                            <span className="flex items-center gap-1">
-                              {getCategoryIcon(cat)}
-                              {cat}
-                            </span>
-                            <span>{count}</span>
-                          </div>
-                          <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden border border-slate-850">
-                            <div 
-                              className="bg-[#7bc3db] h-full rounded-full"
-                              style={{ width: `${widthPercent}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    <h4 className="text-xs font-black text-slate-400 flex items-center gap-1.5">
+                      <ClipboardList className="w-4 h-4 text-indigo-400" />
+                      Desempenho por Categoria (Últimos 30 dias)
+                    </h4>
+
+                    {reportData.categoryBreakdown?.length === 0 ? (
+                      <div className="bg-slate-950 border border-slate-850 p-4 rounded-3xl text-center text-[10px] text-slate-500">
+                        Nenhuma tarefa aprovada nos últimos 30 dias.
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {reportData.categoryBreakdown.map((catInfo) => {
+                          const totalCount = reportData.summary.totalApproved || 1;
+                          const percent = Math.round((catInfo.count / totalCount) * 100);
+
+                          // Category icons and colors
+                          let emoji = '📋';
+                          let barColor = 'bg-indigo-500';
+                          if (catInfo.category.toLowerCase().includes('estudo')) {
+                            emoji = '📚';
+                            barColor = 'bg-blue-500';
+                          } else if (catInfo.category.toLowerCase().includes('organiza')) {
+                            emoji = '🧹';
+                            barColor = 'bg-amber-500';
+                          } else if (catInfo.category.toLowerCase().includes('higien')) {
+                            emoji = '🧼';
+                            barColor = 'bg-emerald-500';
+                          } else if (catInfo.category.toLowerCase().includes('leitura')) {
+                            emoji = '📖';
+                            barColor = 'bg-violet-500';
+                          } else if (catInfo.category.toLowerCase().includes('físic') || catInfo.category.toLowerCase().includes('fisic')) {
+                            emoji = '⚽';
+                            barColor = 'bg-rose-500';
+                          }
+
+                          return (
+                            <div key={catInfo.category} className="bg-slate-950 border border-slate-850 p-3 rounded-2xl space-y-2 flex flex-col justify-between">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-bold text-slate-200 flex items-center gap-1">
+                                  <span>{emoji}</span> {catInfo.category}
+                                </span>
+                                <span className="text-[9px] font-black bg-slate-900 border border-slate-800 text-indigo-300 px-1.5 py-0.5 rounded-md">
+                                  {catInfo.count}x aprovada(s)
+                                </span>
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden border border-slate-850">
+                                  <div className={`h-full rounded-full ${barColor}`} style={{ width: `${percent}%` }} />
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 text-[8px] text-slate-500 pt-1 border-t border-slate-900/50 flex-wrap">
+                                {catInfo.coins > 0 && (
+                                  <span className="inline-flex items-center gap-0.5 bg-yellow-500/10 text-yellow-450 px-1.5 py-0.5 rounded-md font-bold">
+                                    🪙 +{catInfo.coins}
+                                  </span>
+                                )}
+                                {catInfo.real > 0 && (
+                                  <span className="inline-flex items-center gap-0.5 bg-[#25cca7]/10 text-[#25cca7] px-1.5 py-0.5 rounded-md font-bold">
+                                    💵 +R$ {catInfo.real.toFixed(2)}
+                                  </span>
+                                )}
+                                <span className="inline-flex items-center gap-0.5 bg-indigo-500/10 text-indigo-400 px-1.5 py-0.5 rounded-md font-bold">
+                                  ✨ +{catInfo.xp} XP
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
-              </section>
+                </>
+              )}
             </div>
           )}
 
@@ -785,69 +1061,144 @@ export default function ParentDashboard() {
             </div>
           )}
 
-          {/* TAB 3: CHORES MANAGEMENT */}
-          {activeTab === 'tasks' && (() => {
+          {/* TAB 3: AGENDA / CALENDAR VIEW */}
+          {activeTab === 'agenda' && (() => {
             const childTasks = tasks.filter(t => t.assignedToId === selectedChildId);
-            const filteredTasks = childTasks.filter((task) => {
-              if (taskViewMode === 'all') {
-                return !(task.isDaily && task.status === 'APPROVED');
-              }
-              if (task.isDaily) {
-                return !(task.status === 'APPROVED' && !isSameDay(task.approvedAt, selectedDate));
-              }
-              if (task.deadline) {
-                return isSameDay(task.deadline, selectedDate);
-              }
-              return isSameDay(task.createdAt, selectedDate);
-            });
-
-            // Group tasks by title for repeating instances
             const groupedTasks = [];
-            const dailyGroups = {};
 
-            filteredTasks.forEach(task => {
-              if (task.isDaily) {
-                const key = `${task.title}-${task.category}`;
-                if (!dailyGroups[key]) {
-                  dailyGroups[key] = {
-                    title: task.title,
-                    description: task.description,
-                    category: task.category,
-                    difficulty: task.difficulty,
-                    isDaily: true,
-                    rewardType: task.rewardType,
-                    rewardCoins: task.rewardCoins,
-                    rewardReal: task.rewardReal,
-                    xpReward: task.xpReward,
-                    instances: [task]
-                  };
+            if (taskViewMode === 'all') {
+              // "Ver Tudo" mode: show all active tasks (hide approved daily task history clones)
+              const filtered = childTasks.filter(task => !(task.isDaily && task.status === 'APPROVED'));
+              const dailyGroups = {};
+
+              filtered.forEach(task => {
+                if (task.isDaily) {
+                  const key = `${task.title}-${task.category}`;
+                  if (!dailyGroups[key]) {
+                    dailyGroups[key] = {
+                      title: task.title,
+                      description: task.description,
+                      category: task.category,
+                      difficulty: task.difficulty,
+                      isDaily: true,
+                      rewardType: task.rewardType,
+                      rewardCoins: task.rewardCoins,
+                      rewardReal: task.rewardReal,
+                      xpReward: task.xpReward,
+                      instances: [task]
+                    };
+                  } else {
+                    dailyGroups[key].instances.push(task);
+                  }
                 } else {
-                  dailyGroups[key].instances.push(task);
+                  groupedTasks.push({
+                    ...task,
+                    instances: [task]
+                  });
                 }
-              } else {
+              });
+
+              Object.values(dailyGroups).forEach(group => {
+                groupedTasks.push(group);
+              });
+            } else {
+              // Calendar modes ("weekly" or "monthly"):
+              // 1. Identify all unique daily task definitions
+              const dailyDefs = [];
+              childTasks.forEach(task => {
+                if (task.isDaily) {
+                  const alreadyAdded = dailyDefs.some(d => 
+                    d.title.trim().toLowerCase() === task.title.trim().toLowerCase() && 
+                    d.category.trim().toLowerCase() === task.category.trim().toLowerCase()
+                  );
+                  if (!alreadyAdded) {
+                    dailyDefs.push(task);
+                  }
+                }
+              });
+
+              // 2. Identify one-off tasks belonging to this date
+              const oneOffTasks = childTasks.filter(task => {
+                if (task.isDaily) return false;
+                if (task.deadline) {
+                  return isSameDay(task.deadline, selectedDate);
+                }
+                return isSameDay(task.createdAt, selectedDate);
+              });
+
+              const isToday = isSameDay(selectedDate, new Date());
+
+              // 3. Map each daily task to its instances for the selected date
+              dailyDefs.forEach(def => {
+                const completions = childTasks.filter(task => {
+                  if (!task.isDaily) return false;
+                  if (task.title.trim().toLowerCase() !== def.title.trim().toLowerCase() ||
+                      task.category.trim().toLowerCase() !== def.category.trim().toLowerCase()) {
+                    return false;
+                  }
+
+                  if (task.status === 'APPROVED') {
+                    return isSameDay(task.approvedAt, selectedDate);
+                  }
+                  if (task.status === 'COMPLETED' || task.status === 'REJECTED') {
+                    return isSameDay(task.completedAt, selectedDate);
+                  }
+
+                  return isToday;
+                });
+
+                if (completions.length > 0) {
+                  groupedTasks.push({
+                    title: def.title,
+                    description: def.description,
+                    category: def.category,
+                    difficulty: def.difficulty,
+                    isDaily: true,
+                    rewardType: def.rewardType,
+                    rewardCoins: def.rewardCoins,
+                    rewardReal: def.rewardReal,
+                    xpReward: def.xpReward,
+                    instances: completions
+                  });
+                } else {
+                  groupedTasks.push({
+                    title: def.title,
+                    description: def.description,
+                    category: def.category,
+                    difficulty: def.difficulty,
+                    isDaily: true,
+                    rewardType: def.rewardType,
+                    rewardCoins: def.rewardCoins,
+                    rewardReal: def.rewardReal,
+                    xpReward: def.xpReward,
+                    instances: [{
+                      ...def,
+                      id: `virtual-${def.id}`,
+                      status: 'PENDING',
+                      completedAt: null,
+                      approvedAt: null
+                    }]
+                  });
+                }
+              });
+
+              oneOffTasks.forEach(task => {
                 groupedTasks.push({
                   ...task,
                   instances: [task]
                 });
-              }
-            });
-
-            Object.values(dailyGroups).forEach(group => {
-              groupedTasks.push(group);
-            });
+              });
+            }
 
             return (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider">
-                    Gerenciamento de Tarefas
+                    Agenda de Tarefas
                   </h3>
-                  <button
-                    onClick={() => setShowCreateTask(true)}
-                    className="bg-[#25cca7] hover:bg-[#1fb393] text-slate-955 font-black py-1.5 px-3 rounded-xl text-[10px] flex items-center gap-1 shadow-sm"
-                  >
-                    <Plus className="w-3 h-3" /> Criar dever
-                  </button>
+                  <span className="text-[9px] font-bold text-slate-500 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-lg uppercase tracking-wider">
+                    {selectedChild?.name || 'Nenhum selecionado'}
+                  </span>
                 </div>
 
                 {/* Calendar switch selectors */}
@@ -1045,23 +1396,32 @@ export default function ParentDashboard() {
                                   </button>
                                 </div>
                               )}
-                              {(inst.status === 'PENDING' || inst.status === 'REJECTED') && (
-                                <button
-                                  onClick={() => handleDeleteTask(inst.id)}
-                                  className="text-red-400 hover:text-red-300 p-1.5 rounded-xl hover:bg-red-950/20 transition-all shrink-0"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              )}
+                              <button
+                                onClick={() => handleDeleteTask(inst.id)}
+                                className="text-red-400 hover:text-red-300 p-1.5 rounded-xl hover:bg-red-950/20 transition-all shrink-0"
+                                title="Deletar dever"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </div>
                           </div>
                         );
                       }
+                      // Repeating Chores
+                      const key = `${task.title}-${task.category}`;
+                      const defaultIndex = task.instances.findIndex(inst => inst.status === 'COMPLETED');
+                      const selectedIndex = selectedInstIndices[key] !== undefined 
+                        ? selectedInstIndices[key] 
+                        : (defaultIndex !== -1 ? defaultIndex : 0);
+                      const selectedInstance = task.instances[selectedIndex] || task.instances[0];
+                      const isExpanded = !!expandedTasks[key];
 
-                      // Repeating Chores rendering (daily or has multiple completions)
                       return (
-                        <div key={gIdx} className="bg-slate-950 border border-slate-855 rounded-2xl p-3.5 space-y-3 shadow-sm hover:border-slate-800 transition-colors">
-                          <div className="flex justify-between items-start">
+                        <div key={gIdx} className="bg-slate-950 border border-slate-855 rounded-2xl p-3.5 space-y-4 shadow-sm hover:border-slate-800 transition-colors">
+                          <div 
+                            className="flex justify-between items-start cursor-pointer select-none"
+                            onClick={() => setExpandedTasks(prev => ({ ...prev, [key]: !prev[key] }))}
+                          >
                             <div>
                               <div className="flex items-center gap-2">
                                 <span className="text-[8px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
@@ -1072,59 +1432,163 @@ export default function ParentDashboard() {
                               <h4 className="text-xs font-bold text-white mt-1.5">{task.title}</h4>
                               {task.description && <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">{task.description}</p>}
                             </div>
-                            {/* Edit repeating task header */}
-                            <button
-                              onClick={() => openEditTask(task.instances[0])}
-                              className="p-1.5 rounded-xl text-slate-500 hover:text-indigo-400 hover:bg-indigo-950/20 transition-all shrink-0"
-                              title="Editar dever"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
+                            {/* Edit/Delete repeating task header group */}
+                            <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                              <button
+                                onClick={() => openEditTask(task.instances[0])}
+                                className="p-1.5 rounded-xl text-slate-500 hover:text-indigo-400 hover:bg-indigo-950/20 transition-all"
+                                title="Editar dever"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteAllInstances(task.instances)}
+                                className="p-1.5 rounded-xl text-red-500/80 hover:text-red-400 hover:bg-red-950/20 transition-all"
+                                title="Excluir dever e todas repetições"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setExpandedTasks(prev => ({ ...prev, [key]: !prev[key] }))}
+                                className="p-1.5 rounded-xl text-slate-500 hover:text-white transition-all"
+                                title={isExpanded ? "Esconder repetições" : "Mostrar repetições"}
+                              >
+                                {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                              </button>
+                            </div>
                           </div>
 
-                          <div className="border-t border-slate-900 pt-2.5 space-y-2">
-                            {task.instances.map((inst, index) => (
-                              <div key={inst.id || index} className="flex items-center justify-between text-xs py-1.5 px-3 bg-slate-900/40 rounded-xl border border-slate-850/40">
-                                <div className="min-w-0 flex-1">
-                                  <span className="text-[10px] text-slate-400 font-black">
-                                    Repetição #${index + 1}
-                                  </span>
-                                  <span className="ml-2 text-[9px] text-slate-500">
-                                    {inst.rewardType === 'REAL_MONEY' ? `R$ &nbsp;${parseFloat(inst.rewardReal).toFixed(2)}` : inst.rewardType === 'COINS' ? `${inst.rewardCoins} Moedas` : `${inst.rewardCoins} Moedas + R$ ${parseFloat(inst.rewardReal).toFixed(2)}`}
-                                  </span>
-                                </div>
-                                
-                                <div className="flex items-center gap-2">
-                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-md ${
-                                    inst.status === 'APPROVED' ? 'bg-[#76c043]/10 text-[#76c043] border border-[#76c043]/20' :
-                                    inst.status === 'COMPLETED' ? 'bg-[#fef01e]/10 text-[#fef01e] border border-[#fef01e]/20 animate-pulse' :
-                                    inst.status === 'REJECTED' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-slate-850 text-slate-500'
-                                  }`}>
-                                    {inst.status === 'APPROVED' ? 'OK' :
-                                     inst.status === 'COMPLETED' ? 'PENDENTE' :
-                                     inst.status === 'REJECTED' ? 'CORRIGIR' : 'ATIVO'}
-                                  </span>
-                                  
-                                  {inst.status === 'COMPLETED' && (
-                                    <div className="flex gap-1">
-                                      <button onClick={() => handleRejectTask(inst.id)} className="bg-red-950/20 text-red-400 border border-red-900/20 p-1 rounded-lg hover:bg-red-900/20" title="Rejeitar">
-                                        <X className="w-3 h-3" />
+                          {/* Lista de repetições concluídas (Aprovação rápida direta no card) */}
+                          {task.instances.filter(inst => inst.status === 'COMPLETED').length > 0 && (
+                            <div className="space-y-2 border-t border-slate-900 pt-3" onClick={e => e.stopPropagation()}>
+                              {task.instances.filter(inst => inst.status === 'COMPLETED').map((inst) => {
+                                const realIndex = task.instances.findIndex(i => i.id === inst.id);
+                                return (
+                                  <div key={inst.id} className="flex items-center justify-between bg-slate-900/40 border border-slate-850/40 p-2.5 rounded-xl text-xs gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-slate-300 font-black">
+                                          Repetição #{realIndex + 1}
+                                        </span>
+                                        <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-md bg-[#fef01e]/10 text-[#fef01e] border border-[#fef01e]/20 animate-pulse">
+                                          COMPLETO
+                                        </span>
+                                      </div>
+                                      <div className="text-[9px] text-slate-500 mt-0.5">
+                                        Recompensa: {inst.rewardType === 'REAL_MONEY' ? `R$ ${parseFloat(inst.rewardReal).toFixed(2)}` : inst.rewardType === 'COINS' ? `${inst.rewardCoins} Moedas` : `${inst.rewardCoins} Moedas + R$ ${parseFloat(inst.rewardReal).toFixed(2)}`}
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-1.5 shrink-0">
+                                      <button 
+                                        onClick={() => handleRejectTask(inst.id)} 
+                                        className="bg-red-955/20 text-red-400 border border-red-900/20 p-1.5 rounded-xl hover:bg-red-900/20 active:scale-95 transition-all" 
+                                        title="Rejeitar"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
                                       </button>
-                                      <button onClick={() => handleApproveTask(inst.id)} className="bg-[#76c043] text-slate-950 p-1 rounded-lg hover:bg-[#609d34]" title="Aprovar">
-                                        <Check className="w-3 h-3" />
+                                      <button 
+                                        onClick={() => handleApproveTask(inst.id)} 
+                                        className="bg-[#76c043] text-slate-955 p-1.5 rounded-xl hover:bg-[#609d34] active:scale-95 transition-all" 
+                                        title="Aprovar"
+                                      >
+                                        <Check className="w-3.5 h-3.5" />
                                       </button>
                                     </div>
-                                  )}
-                                  
-                                  {(inst.status === 'PENDING' || inst.status === 'REJECTED') && (
-                                    <button onClick={() => handleDeleteTask(inst.id)} className="text-red-400 hover:text-red-350 p-1 rounded-lg hover:bg-red-950/10" title="Deletar">
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {isExpanded && (
+                            <>
+                              {/* Seletor compacto de repetições (Checkpoints) */}
+                              <div className="flex items-center gap-2 border-t border-slate-900 pt-3 flex-wrap">
+                                <span className="text-[10px] text-slate-500 font-bold mr-1">Repetições:</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {task.instances.map((inst, index) => {
+                                    const isSelected = index === selectedIndex;
+                                    let statusColor = "bg-slate-900 border-slate-850 text-slate-500";
+                                    if (inst.status === 'APPROVED') {
+                                      statusColor = "bg-[#76c043]/10 border-[#76c043]/30 text-[#76c043]";
+                                    } else if (inst.status === 'COMPLETED') {
+                                      statusColor = "bg-[#fef01e]/10 border-[#fef01e]/30 text-[#fef01e] animate-pulse";
+                                    } else if (inst.status === 'REJECTED') {
+                                      statusColor = "bg-red-500/10 border-red-500/30 text-red-400";
+                                    }
+
+                                    return (
+                                      <button
+                                        key={inst.id || index}
+                                        type="button"
+                                        onClick={() => setSelectedInstIndices(prev => ({ ...prev, [key]: index }))}
+                                        className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black border transition-all ${statusColor} ${
+                                          isSelected ? 'ring-2 ring-indigo-400 scale-110' : 'hover:scale-105 active:scale-95'
+                                        }`}
+                                        title={`Repetição #${index + 1}: ${inst.status}`}
+                                      >
+                                        {index + 1}
+                                      </button>
+                                    );
+                                  })}
                                 </div>
                               </div>
-                            ))}
-                          </div>
+
+                              {/* Detalhes da Repetição Selecionada */}
+                              {selectedInstance && (
+                                <div className="bg-slate-900/40 border border-slate-850/40 rounded-xl p-3 flex items-center justify-between text-xs transition-all">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[10px] text-slate-400 font-black">
+                                        Repetição #${selectedIndex + 1}
+                                      </span>
+                                      <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-md ${
+                                        selectedInstance.status === 'APPROVED' ? 'bg-[#76c043]/10 text-[#76c043] border border-[#76c043]/20' :
+                                        selectedInstance.status === 'COMPLETED' ? 'bg-[#fef01e]/10 text-[#fef01e] border border-[#fef01e]/20 animate-pulse' :
+                                        selectedInstance.status === 'REJECTED' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-slate-850 text-slate-500'
+                                      }`}>
+                                        {selectedInstance.status === 'APPROVED' ? 'OK' :
+                                         selectedInstance.status === 'COMPLETED' ? 'PENDENTE' :
+                                         selectedInstance.status === 'REJECTED' ? 'CORRIGIR' : 'ATIVO'}
+                                      </span>
+                                    </div>
+                                    <div className="text-[9px] text-slate-500 mt-1">
+                                      Recompensa: {selectedInstance.rewardType === 'REAL_MONEY' ? `R$ ${parseFloat(selectedInstance.rewardReal).toFixed(2)}` : selectedInstance.rewardType === 'COINS' ? `${selectedInstance.rewardCoins} Moedas` : `${selectedInstance.rewardCoins} Moedas + R$ ${parseFloat(selectedInstance.rewardReal).toFixed(2)}`}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    {selectedInstance.status === 'COMPLETED' && (
+                                      <div className="flex gap-1">
+                                        <button 
+                                          onClick={() => handleRejectTask(selectedInstance.id)} 
+                                          className="bg-red-950/20 text-red-400 border border-red-900/20 p-1.5 rounded-xl hover:bg-red-900/20 active:scale-95 transition-all" 
+                                          title="Rejeitar"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button 
+                                          onClick={() => handleApproveTask(selectedInstance.id)} 
+                                          className="bg-[#76c043] text-slate-955 p-1.5 rounded-xl hover:bg-[#609d34] active:scale-95 transition-all" 
+                                          title="Aprovar"
+                                        >
+                                          <Check className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    <button 
+                                      onClick={() => handleDeleteTask(selectedInstance.id)} 
+                                      className="text-red-400 hover:text-red-350 p-1.5 rounded-xl hover:bg-red-955/20 transition-all flex items-center justify-center shrink-0" 
+                                      title="Deletar repetição"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          )}
                         </div>
                       );
                     })}
@@ -1134,7 +1598,196 @@ export default function ParentDashboard() {
             );
           })()}
 
-          {/* TAB 4: FAMILY DEPENDENTS & SAVINGS */}
+          {/* TAB 4: REGISTER — TASK LIBRARY */}
+          {activeTab === 'register' && (() => {
+            // Group all tasks by child, then by title (for daily repeats)
+            const allChildren = children.filter(c => c.role === 'CHILD');
+
+            // For library view: show ONE representative per daily group (the PENDING one, or first)
+            const getLibraryTasks = (childId) => {
+              const childTasks = tasks.filter(t => t.assignedToId === childId);
+              const seen = new Set();
+              return childTasks.filter(task => {
+                if (!task.isDaily) return true; // non-daily: always show
+                const key = `${task.title}-${task.category}`;
+                if (task.status === 'APPROVED') return false; // skip approved history clones
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              });
+            };
+
+            const categoryColors = {
+              'Organização': '#fca570',
+              'Tarefas domésticas': '#fca570',
+              'Estudos': '#7bc3db',
+              'Leitura': '#a48cb3',
+              'Higiene': '#f3aba2',
+              'Atividades físicas': '#76c043',
+              'Responsabilidade': '#25cca7',
+            };
+
+            return (
+              <div className="space-y-5">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                      <Library className="w-4 h-4 text-indigo-400" />
+                      Cadastro de Deveres
+                    </h3>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Crie, edite e organize os deveres da família</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleResetDaily}
+                      className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 font-black py-1.5 px-2.5 rounded-xl text-[10px] flex items-center gap-1 transition-colors"
+                      title="Zerar repetições e reiniciar tarefas diárias"
+                    >
+                      <RotateCcw className="w-3 h-3" /> Virar o Dia
+                    </button>
+                    <button
+                      onClick={() => setShowCreateTask(true)}
+                      className="bg-[#25cca7] hover:bg-[#1fb393] text-slate-950 font-black py-1.5 px-3 rounded-xl text-[10px] flex items-center gap-1 shadow-sm transition-colors"
+                    >
+                      <Plus className="w-3 h-3" /> Criar dever
+                    </button>
+                  </div>
+                </div>
+
+                {/* Child selector chips */}
+                {allChildren.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                    <button
+                      onClick={() => setSelectedChildId('')}
+                      className={`shrink-0 px-3 py-1 rounded-xl text-[10px] font-black border transition-all ${
+                        !selectedChildId
+                          ? 'bg-indigo-600 border-indigo-600 text-white'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      Todos
+                    </button>
+                    {allChildren.map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => setSelectedChildId(c.id)}
+                        className={`shrink-0 px-3 py-1 rounded-xl text-[10px] font-black border transition-all ${
+                          selectedChildId === c.id
+                            ? 'bg-[#a48cb3] border-[#a48cb3] text-slate-950'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        {c.name.split(' ')[0]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Per-child task lists */}
+                {(selectedChildId ? allChildren.filter(c => c.id === selectedChildId) : allChildren).map(child => {
+                  const libTasks = getLibraryTasks(child.id);
+                  return (
+                    <div key={child.id} className="space-y-2">
+                      {/* Child label */}
+                      <div className="flex items-center gap-2">
+                        <div className="h-px flex-1 bg-slate-800" />
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{child.name}</span>
+                        <div className="h-px flex-1 bg-slate-800" />
+                      </div>
+
+                      {libTasks.length === 0 ? (
+                        <button
+                          onClick={() => { setSelectedChildId(child.id); setShowCreateTask(true); }}
+                          className="w-full py-5 rounded-2xl border border-dashed border-slate-800 text-[10px] text-slate-500 hover:border-indigo-800/50 hover:text-indigo-400 transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Nenhum dever cadastrado — clique para criar
+                        </button>
+                      ) : (
+                        <div className="space-y-2">
+                          {libTasks.map(task => {
+                            const dotColor = categoryColors[task.category] || '#7bc3db';
+                            const statusBadge = task.status === 'PENDING'
+                              ? { label: 'Ativo', cls: 'bg-slate-900 text-slate-400 border-slate-800' }
+                              : task.status === 'COMPLETED'
+                              ? { label: 'Enviado', cls: 'bg-[#fef01e]/10 text-[#fef01e] border-[#fef01e]/20 animate-pulse' }
+                              : task.status === 'REJECTED'
+                              ? { label: 'Corrigir', cls: 'bg-red-500/10 text-red-400 border-red-500/20' }
+                              : { label: 'OK', cls: 'bg-[#76c043]/10 text-[#76c043] border-[#76c043]/20' };
+
+                            return (
+                              <div
+                                key={task.id}
+                                className="bg-slate-950 border border-slate-850 rounded-2xl p-3.5 flex items-center justify-between gap-3 hover:border-slate-800 transition-colors"
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  {/* Category dot */}
+                                  <div
+                                    className="w-2 h-2 rounded-full shrink-0"
+                                    style={{ background: dotColor, boxShadow: `0 0 6px ${dotColor}80` }}
+                                  />
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <h4 className="text-xs font-bold text-white truncate">{task.title}</h4>
+                                      {task.isDaily && (
+                                        <span className="text-[7px] font-black px-1.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 uppercase shrink-0">↻ Diária</span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                      <span className="text-[9px] text-slate-500">{task.category}</span>
+                                      <span className="text-[9px] text-slate-600">•</span>
+                                      <span className="text-[9px] text-slate-500">
+                                        {task.rewardType === 'REAL_MONEY'
+                                          ? `R$ ${parseFloat(task.rewardReal).toFixed(2)}`
+                                          : task.rewardType === 'COINS'
+                                          ? `🪙 ${task.rewardCoins}`
+                                          : `🪙 ${task.rewardCoins} + R$ ${parseFloat(task.rewardReal).toFixed(2)}`}
+                                      </span>
+                                      <span className="text-[9px] text-slate-600">•</span>
+                                      <span className="text-[9px] text-indigo-400">+{task.xpReward} XP</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className={`text-[7px] font-black px-1.5 py-0.5 rounded-md border ${statusBadge.cls}`}>
+                                    {statusBadge.label}
+                                  </span>
+                                  <button
+                                    onClick={() => openEditTask(task)}
+                                    className="p-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-indigo-400 hover:border-indigo-800/50 transition-all"
+                                    title="Editar dever"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteTask(task.id)}
+                                    className="p-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-red-400 hover:border-red-900/50 transition-all"
+                                    title="Excluir dever"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {allChildren.length === 0 && (
+                  <div className="bg-slate-950 border border-slate-850 rounded-2xl p-6 text-center">
+                    <Library className="w-8 h-8 text-slate-700 mx-auto mb-2" />
+                    <p className="text-[11px] text-slate-500">Cadastre um filho primeiro para criar deveres.</p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* TAB 5: FAMILY DEPENDENTS & SAVINGS */}
           {activeTab === 'family' && (
             <div className="space-y-4">
               
@@ -1210,6 +1863,26 @@ export default function ParentDashboard() {
                               </>
                             )}
                           </div>
+                          {/* Report button (children only) */}
+                          {child.role === 'CHILD' && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openReport(child); }}
+                              className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-indigo-400 hover:border-indigo-800/50 hover:bg-indigo-950/20 transition-all"
+                              title="Ver relatório de desempenho"
+                            >
+                              <BarChart2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {/* Wallet adjust button (children only) */}
+                          {child.role === 'CHILD' && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openAdjustWallet(child); }}
+                              className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-[#25cca7] hover:border-[#25cca7]/40 hover:bg-[#25cca7]/10 transition-all"
+                              title="Ajustar saldo"
+                            >
+                              <Wallet className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           {/* Edit button */}
                           <button
                             onClick={(e) => { e.stopPropagation(); openEditChild(child); }}
@@ -1283,59 +1956,71 @@ export default function ParentDashboard() {
 
         </main>
 
-        {/* Sticky Mobile bottom navigation menu */}
-        <footer className="absolute bottom-5 left-4 right-4 bg-slate-950/90 backdrop-blur-md border border-slate-800/80 rounded-2xl py-2.5 shadow-2xl flex justify-around z-30 select-none">
+        {/* Sticky Mobile bottom navigation menu — 5 tabs */}
+        <footer className="absolute bottom-5 left-4 right-4 bg-slate-950/90 backdrop-blur-md border border-slate-800/80 rounded-2xl py-2 shadow-2xl flex justify-around z-30 select-none">
           <button
             onClick={() => setActiveTab('summary')}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all duration-300 ${
-              activeTab === 'summary' 
-                ? 'text-indigo-400 bg-indigo-500/10 scale-105 shadow-inner' 
+            className={`flex flex-col items-center gap-1 py-1.5 px-2 rounded-xl transition-all duration-300 ${
+              activeTab === 'summary'
+                ? 'text-indigo-400 bg-indigo-500/10 scale-105 shadow-inner'
                 : 'text-slate-500 hover:text-slate-400 hover:bg-slate-900/40'
             }`}
           >
-            <BarChart3 className="w-5 h-5" />
-            <span className="text-[8px] font-bold uppercase tracking-wider px-1">Resumo</span>
+            <BarChart3 className="w-4.5 h-4.5" />
+            <span className="text-[7px] font-bold uppercase tracking-wider">Resumo</span>
           </button>
 
           <button
             onClick={() => setActiveTab('approvals')}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all duration-300 relative ${
-              activeTab === 'approvals' 
-                ? 'text-indigo-400 bg-indigo-500/10 scale-105 shadow-inner' 
+            className={`flex flex-col items-center gap-1 py-1.5 px-2 rounded-xl transition-all duration-300 relative ${
+              activeTab === 'approvals'
+                ? 'text-indigo-400 bg-indigo-500/10 scale-105 shadow-inner'
                 : 'text-slate-500 hover:text-slate-400 hover:bg-slate-900/40'
             }`}
           >
-            <Bell className="w-5 h-5" />
+            <Bell className="w-4.5 h-4.5" />
             {totalApprovalsCount > 0 && (
-              <span className="absolute top-0.5 right-2 bg-red-500 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center">
+              <span className="absolute top-0.5 right-1 bg-red-500 text-white text-[7px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center">
                 {totalApprovalsCount}
               </span>
             )}
-            <span className="text-[8px] font-bold uppercase tracking-wider px-1">Aprovações</span>
+            <span className="text-[7px] font-bold uppercase tracking-wider">Aprovar</span>
           </button>
 
           <button
-            onClick={() => setActiveTab('tasks')}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all duration-300 ${
-              activeTab === 'tasks' 
-                ? 'text-indigo-400 bg-indigo-500/10 scale-105 shadow-inner' 
+            onClick={() => setActiveTab('register')}
+            className={`flex flex-col items-center gap-1 py-1.5 px-2 rounded-xl transition-all duration-300 ${
+              activeTab === 'register'
+                ? 'text-indigo-400 bg-indigo-500/10 scale-105 shadow-inner'
                 : 'text-slate-500 hover:text-slate-400 hover:bg-slate-900/40'
             }`}
           >
-            <ClipboardList className="w-5 h-5" />
-            <span className="text-[8px] font-bold uppercase tracking-wider px-1">Tarefas</span>
+            <Library className="w-4.5 h-4.5" />
+            <span className="text-[7px] font-bold uppercase tracking-wider">Cadastro</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('agenda')}
+            className={`flex flex-col items-center gap-1 py-1.5 px-2 rounded-xl transition-all duration-300 ${
+              activeTab === 'agenda'
+                ? 'text-indigo-400 bg-indigo-500/10 scale-105 shadow-inner'
+                : 'text-slate-500 hover:text-slate-400 hover:bg-slate-900/40'
+            }`}
+          >
+            <Calendar className="w-4.5 h-4.5" />
+            <span className="text-[7px] font-bold uppercase tracking-wider">Agenda</span>
           </button>
 
           <button
             onClick={() => setActiveTab('family')}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-xl transition-all duration-300 ${
-              activeTab === 'family' 
-                ? 'text-indigo-400 bg-indigo-500/10 scale-105 shadow-inner' 
+            className={`flex flex-col items-center gap-1 py-1.5 px-2 rounded-xl transition-all duration-300 ${
+              activeTab === 'family'
+                ? 'text-indigo-400 bg-indigo-500/10 scale-105 shadow-inner'
                 : 'text-slate-500 hover:text-slate-400 hover:bg-slate-900/40'
             }`}
           >
-            <Users className="w-5 h-5" />
-            <span className="text-[8px] font-bold uppercase tracking-wider px-1">Família</span>
+            <Users className="w-4.5 h-4.5" />
+            <span className="text-[7px] font-bold uppercase tracking-wider">Família</span>
           </button>
         </footer>
 
@@ -1913,6 +2598,352 @@ export default function ParentDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* WALLET ADJUSTMENT MODAL */}
+      {showAdjustWallet && adjustWalletChild && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+          <div className="bg-slate-900 border-t sm:border border-slate-800 rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <div className="flex items-center gap-2 mb-2">
+              <Wallet className="w-5 h-5 text-[#25cca7]" />
+              <h3 className="text-base font-bold text-white">Ajustar Saldo</h3>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-normal">
+              Ajuste o saldo da carteira de <strong className="text-white">{adjustWalletChild.name}</strong>. Use os botões de zerar para apagar os saldos rapidamente.
+            </p>
+
+            {/* Current balances */}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-center">
+                <div className="text-[8px] text-slate-500 font-bold uppercase">Saldo Atual</div>
+                <div className="text-sm font-black text-[#fef01e] mt-0.5">
+                  🪙 {adjustWalletChild.wallet?.balanceCoins || 0}
+                </div>
+              </div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-center">
+                <div className="text-[8px] text-slate-500 font-bold uppercase">Saldo Atual</div>
+                <div className="text-sm font-black text-[#25cca7] mt-0.5">
+                  R$ {parseFloat(adjustWalletChild.wallet?.balanceReal || 0).toFixed(2)}
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleAdjustWallet} className="mt-4 space-y-4">
+              {/* Coins adjustment */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    🪙 Moedas (EduCoins)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setAdjustCoins('0')}
+                    className="text-[9px] font-black text-red-400 bg-red-950/20 border border-red-900/30 px-2 py-0.5 rounded-lg hover:bg-red-900/30 transition-colors"
+                  >
+                    Zerar
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={adjustCoins}
+                  onChange={(e) => setAdjustCoins(e.target.value)}
+                  placeholder="Novo valor de moedas"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-3 text-xs text-white focus:outline-hidden focus:border-[#fef01e]/60 transition-colors"
+                />
+              </div>
+
+              {/* Real adjustment */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    💵 Dinheiro Real (R$)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setAdjustReal('0')}
+                    className="text-[9px] font-black text-red-400 bg-red-950/20 border border-red-900/30 px-2 py-0.5 rounded-lg hover:bg-red-900/30 transition-colors"
+                  >
+                    Zerar
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={adjustReal}
+                  onChange={(e) => setAdjustReal(e.target.value)}
+                  placeholder="Novo valor em R$"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-3 text-xs text-white focus:outline-hidden focus:border-[#25cca7]/60 transition-colors"
+                />
+              </div>
+
+              {/* Quick actions */}
+              <div className="bg-slate-950 border border-red-900/20 rounded-xl p-3">
+                <p className="text-[9px] text-slate-500 mb-2 font-bold">AÇÃO RÁPIDA</p>
+                <button
+                  type="button"
+                  onClick={() => { setAdjustCoins('0'); setAdjustReal('0'); }}
+                  className="w-full py-2 rounded-xl text-[10px] font-black text-red-400 bg-red-950/20 border border-red-900/30 hover:bg-red-900/30 transition-colors"
+                >
+                  🗑️ Zerar Tudo (Coins + R$)
+                </button>
+              </div>
+
+              {error && (
+                <div className="bg-red-950/40 text-red-400 border border-red-900/30 p-2.5 rounded-xl text-[10px] font-bold text-center">
+                  {error}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => { setShowAdjustWallet(false); setAdjustWalletChild(null); setError(''); }}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-400 bg-slate-850 hover:bg-slate-800 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-black text-slate-950 bg-[#25cca7] hover:bg-[#1fb393] transition-colors shadow-lg disabled:opacity-60"
+                >
+                  {loading ? 'Salvando...' : 'Confirmar Ajuste'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* PERFORMANCE REPORT MODAL */}
+      {showReport && reportChild && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-800 w-full sm:max-w-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden text-slate-100">
+            {/* Header */}
+            <div className="p-4 border-b border-slate-850 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold flex items-center gap-2">
+                  <BarChart2 className="w-5 h-5 text-indigo-400" />
+                  Desempenho de {reportChild.name}
+                </h3>
+                <p className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Nível {reportData?.child?.level || 1} • {reportData?.child?.xp || 0} XP
+                  {reportData?.child?.streak > 0 && (
+                    <span className="flex items-center gap-0.5 text-orange-400 ml-1.5">
+                      <Flame className="w-3.5 h-3.5 fill-orange-400" /> {reportData.child.streak} {reportData.child.streak === 1 ? 'dia' : 'dias'} de ofensiva
+                    </span>
+                  )}
+                </p>
+              </div>
+              <button
+                onClick={() => { setShowReport(false); setReportChild(null); setReportData(null); }}
+                className="p-1.5 rounded-lg bg-slate-800/50 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 overflow-y-auto space-y-5 flex-1 min-h-0 custom-scrollbar">
+              {reportLoading ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-3">
+                  <div className="w-8 h-8 rounded-full border-2 border-indigo-500/20 border-t-indigo-500 animate-spin" />
+                  <p className="text-xs text-slate-400">Carregando relatório...</p>
+                </div>
+              ) : !reportData ? (
+                <div className="py-8 text-center text-xs text-slate-400">
+                  Nenhum dado encontrado para gerar o relatório.
+                </div>
+              ) : (
+                <>
+                  {/* Grid Stats */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-slate-850/40 border border-slate-800/60 p-3 rounded-xl flex flex-col justify-between">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Aprovadas</span>
+                        <Trophy className="w-4 h-4 text-yellow-500" />
+                      </div>
+                      <div className="text-lg font-black text-white">{reportData.summary?.totalApproved || 0}</div>
+                      <span className="text-[8px] text-slate-500 mt-0.5">tarefas validadas</span>
+                    </div>
+
+                    <div className="bg-slate-850/40 border border-slate-800/60 p-3 rounded-xl flex flex-col justify-between">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Esta Semana</span>
+                        <Calendar className="w-4 h-4 text-emerald-400" />
+                      </div>
+                      <div className="text-lg font-black text-white">{reportData.summary?.thisWeek?.count || 0}</div>
+                      <div className="flex items-center gap-1.5 text-[8.5px] text-slate-450 mt-0.5 flex-wrap">
+                        {reportData.summary?.thisWeek?.coins > 0 && (
+                          <span className="text-yellow-400 font-bold">+{reportData.summary.thisWeek.coins}m</span>
+                        )}
+                        {reportData.summary?.thisWeek?.real > 0 && (
+                          <span className="text-[#25cca7] font-bold">+R$ {reportData.summary.thisWeek.real.toFixed(2)}</span>
+                        )}
+                        <span className="text-indigo-400">+{reportData.summary.thisWeek.xp} XP</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-850/40 border border-slate-800/60 p-3 rounded-xl flex flex-col justify-between">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Este Mês</span>
+                        <Activity className="w-4 h-4 text-indigo-400" />
+                      </div>
+                      <div className="text-lg font-black text-white">{reportData.summary?.thisMonth?.count || 0}</div>
+                      <div className="flex items-center gap-1.5 text-[8.5px] text-slate-450 mt-0.5 flex-wrap">
+                        {reportData.summary?.thisMonth?.coins > 0 && (
+                          <span className="text-yellow-400 font-bold">+{reportData.summary.thisMonth.coins}m</span>
+                        )}
+                        {reportData.summary?.thisMonth?.real > 0 && (
+                          <span className="text-[#25cca7] font-bold">+R$ {reportData.summary.thisMonth.real.toFixed(2)}</span>
+                        )}
+                        <span className="text-indigo-400">+{reportData.summary.thisMonth.xp} XP</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Daily Activity Heatmap/Chart */}
+                  <div className="bg-slate-850/20 border border-slate-800/50 p-4 rounded-xl space-y-3">
+                    <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                      <TrendingUp className="w-4 h-4 text-indigo-400" />
+                      Consistência Diária (Últimos 14 dias)
+                    </h4>
+                    <div className="h-24 flex items-end justify-between gap-1 pt-4 pb-1 px-1">
+                      {Object.entries(reportData.dailyActivity || {}).map(([dateStr, count]) => {
+                        const date = new Date(dateStr + 'T00:00:00');
+                        const dayLabel = date.getDate();
+                        const weekDay = date.toLocaleDateString('pt-BR', { weekday: 'narrow' });
+                        const maxCount = Math.max(...Object.values(reportData.dailyActivity || {}), 1);
+                        const percentHeight = (count / maxCount) * 100;
+
+                        return (
+                          <div key={dateStr} className="flex-1 flex flex-col items-center gap-1 group relative">
+                            {/* Tooltip */}
+                            <div className="absolute -top-7 scale-0 group-hover:scale-100 transition-all bg-slate-950 text-slate-200 border border-slate-800 text-[8px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap z-10">
+                              {count} {count === 1 ? 'tarefa' : 'tarefas'} ({date.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })})
+                            </div>
+                            
+                            {/* Bar */}
+                            <div className="w-full bg-slate-800/40 rounded-t-md h-16 flex items-end overflow-hidden">
+                              <div 
+                                style={{ height: `${percentHeight}%` }} 
+                                className={`w-full rounded-t-sm transition-all duration-500 ${
+                                  count > 0 
+                                    ? 'bg-gradient-to-t from-indigo-600 to-indigo-400 group-hover:from-indigo-500 group-hover:to-indigo-300' 
+                                    : 'bg-transparent'
+                                }`}
+                              />
+                            </div>
+
+                            {/* Label */}
+                            <div className="flex flex-col items-center text-[8px]">
+                              <span className="text-slate-500 font-bold">{weekDay}</span>
+                              <span className="text-slate-400">{dayLabel}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Category Breakdown */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                      <ClipboardList className="w-4 h-4 text-indigo-400" />
+                      Desempenho por Categoria
+                    </h4>
+
+                    {reportData.categoryBreakdown?.length === 0 ? (
+                      <div className="bg-slate-850/20 border border-slate-800/40 p-4 rounded-xl text-center text-[10px] text-slate-500">
+                        Nenhuma tarefa aprovada nos últimos 30 dias.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {reportData.categoryBreakdown.map((catInfo) => {
+                          const totalCount = reportData.summary.totalApproved || 1;
+                          const percent = Math.round((catInfo.count / totalCount) * 100);
+
+                          // Category icons and colors
+                          let emoji = '📋';
+                          let barColor = 'bg-indigo-500';
+                          if (catInfo.category.toLowerCase().includes('estudo')) {
+                            emoji = '📚';
+                            barColor = 'bg-blue-500';
+                          } else if (catInfo.category.toLowerCase().includes('organiza')) {
+                            emoji = '🧹';
+                            barColor = 'bg-amber-500';
+                          } else if (catInfo.category.toLowerCase().includes('higien')) {
+                            emoji = '🧼';
+                            barColor = 'bg-emerald-500';
+                          } else if (catInfo.category.toLowerCase().includes('leitura')) {
+                            emoji = '📖';
+                            barColor = 'bg-violet-500';
+                          } else if (catInfo.category.toLowerCase().includes('físic') || catInfo.category.toLowerCase().includes('fisic')) {
+                            emoji = '⚽';
+                            barColor = 'bg-rose-500';
+                          }
+
+                          return (
+                            <div key={catInfo.category} className="bg-slate-850/20 border border-slate-800/40 p-3 rounded-xl space-y-2 flex flex-col justify-between">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-bold text-slate-200 flex items-center gap-1">
+                                  <span>{emoji}</span> {catInfo.category}
+                                </span>
+                                <span className="text-[9px] font-black bg-slate-800/80 text-indigo-300 px-1.5 py-0.5 rounded-md">
+                                  {catInfo.count}x
+                                </span>
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[8px] text-slate-400">
+                                  <span>Recompensas acumuladas:</span>
+                                  <span>{percent}% do total</span>
+                                </div>
+                                <div className="w-full bg-slate-850 rounded-full h-1.5 overflow-hidden">
+                                  <div className={`h-full rounded-full ${barColor}`} style={{ width: `${percent}%` }} />
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 text-[8px] text-slate-400 pt-1 border-t border-slate-850/50 flex-wrap">
+                                {catInfo.coins > 0 && (
+                                  <span className="inline-flex items-center gap-0.5 bg-yellow-500/10 text-yellow-400 px-1 rounded font-bold">
+                                    +{catInfo.coins} moedas
+                                  </span>
+                                )}
+                                {catInfo.real > 0 && (
+                                  <span className="inline-flex items-center gap-0.5 bg-[#25cca7]/10 text-[#25cca7] px-1 rounded font-bold">
+                                    +R$ {catInfo.real.toFixed(2)}
+                                  </span>
+                                )}
+                                <span className="inline-flex items-center gap-0.5 bg-indigo-500/10 text-indigo-400 px-1 rounded font-bold">
+                                  +{catInfo.xp} XP
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-850 bg-slate-900/50 flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setShowReport(false); setReportChild(null); setReportData(null); }}
+                className="flex-1 py-2 rounded-xl text-xs font-bold text-slate-400 bg-slate-850 hover:bg-slate-800 transition-colors text-center cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}

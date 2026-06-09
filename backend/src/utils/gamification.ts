@@ -133,6 +133,9 @@ export const checkAndUnlockAchievements = async (childId: string) => {
 
   const achievements = await prisma.achievement.findMany();
 
+  let readingCount: number | null = null;
+  let orgCount: number | null = null;
+
   for (const ach of achievements) {
     // If already unlocked, skip
     if (unlockedIds.has(ach.id)) continue;
@@ -149,23 +152,27 @@ export const checkAndUnlockAchievements = async (childId: string) => {
       shouldUnlock = true;
     } else if (ach.badgeKey === 'weekly_reader') {
       // Check if they completed at least 3 reading tasks
-      const readingCount = await prisma.task.count({
-        where: {
-          assignedToId: childId,
-          status: 'APPROVED',
-          category: 'Leitura',
-        },
-      });
+      if (readingCount === null) {
+        readingCount = await prisma.task.count({
+          where: {
+            assignedToId: childId,
+            status: 'APPROVED',
+            category: 'Leitura',
+          },
+        });
+      }
       if (readingCount >= 3) shouldUnlock = true;
     } else if (ach.badgeKey === 'organization_master') {
       // Check organization tasks completed
-      const orgCount = await prisma.task.count({
-        where: {
-          assignedToId: childId,
-          status: 'APPROVED',
-          category: 'Organização',
-        },
-      });
+      if (orgCount === null) {
+        orgCount = await prisma.task.count({
+          where: {
+            assignedToId: childId,
+            status: 'APPROVED',
+            category: 'Organização',
+          },
+        });
+      }
       if (orgCount >= 5) shouldUnlock = true;
     }
 

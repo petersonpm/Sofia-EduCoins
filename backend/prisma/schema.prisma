@@ -34,6 +34,7 @@ model User {
   expenses         Expense[]
   achievements     UserAchievement[]
   notifications    Notification[]
+  jars             Jar[]
 
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -142,4 +143,19 @@ model Notification {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+}
+
+model Jar {
+  id             String   @id @default(uuid())
+  name           String
+  icon           String   // Ex: "ShoppingBag", "PiggyBank", "Heart", "TrendingUp"
+  color          String   // Ex: "amber", "emerald", "rose", "indigo"
+  currentCoins   Int      @default(0)
+  currentReal    Decimal  @default(0.00) @db.Decimal(10, 2)
+  purpose        String   // SPEND, SAVE, GIVE, INVEST, CUSTOM
+  
+  childId        String
+  child          User     @relation(fields: [childId], references: [id], onDelete: Cascade)
+  
+  createdAt      DateTime @default(now())
 }

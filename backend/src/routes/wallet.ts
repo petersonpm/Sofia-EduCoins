@@ -112,4 +112,68 @@ router.get('/', authenticateToken, async (req: AuthenticatedRequest, res: Respon
   }
 });
 
+/**
+ * @openapi
+ * /api/wallet/adjust:
+ *   patch:
+ *     summary: (Pais) Ajusta diretamente o saldo da carteira de um filho
+ *     tags: [Carteira]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.patch('/adjust', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  const role = req.user?.role;
+  const { childId, balanceCoins, balanceReal } = req.body;
+
+  // Only parents can adjust wallet balances
+  if (role !== 'PARENT') {
+    return res.status(403).json({ error: 'Apenas responsáveis podem ajustar saldos.' });
+  }
+
+  if (!childId) {
+    return res.status(400).json({ error: 'childId é obrigatório.' });
+  }
+
+  try {
+    // Verify the child exists and is a CHILD role
+    const child = await prisma.user.findFirst({
+      where: { id: childId, role: 'CHILD' },
+    });
+
+    if (!child) {
+      return res.status(404).json({ error: 'Criança não encontrada.' });
+    }
+
+    const wallet = await prisma.wallet.findUnique({ where: { userId: childId } });
+    if (!wallet) {
+      return res.status(404).json({ error: 'Carteira não encontrada.' });
+    }
+
+    const updateData: any = {};
+    if (balanceCoins !== undefined && balanceCoins !== null) {
+      updateData.balanceCoins = Math.max(0, parseInt(balanceCoins, 10) || 0);
+    }
+    if (balanceReal !== undefined && balanceReal !== null) {
+      updateData.balanceReal = Math.max(0, parseFloat(balanceReal) || 0);
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: 'Nenhum valor para atualizar. Informe balanceCoins e/ou balanceReal.' });
+    }
+
+    const updated = await prisma.wallet.update({
+      where: { userId: childId },
+      data: updateData,
+    });
+
+    return res.json({
+      message: 'Saldo ajustado com sucesso!',
+      balanceCoins: updated.balanceCoins,
+      balanceReal: parseFloat(updated.balanceReal.toString()),
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

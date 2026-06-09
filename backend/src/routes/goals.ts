@@ -221,4 +221,178 @@ router.post('/:id/deposit', authenticateToken, async (req: AuthenticatedRequest,
   }
 });
 
+/**
+ * @openapi
+ * /api/goals/{id}:
+ *   put:
+ *     summary: Edita um sonho/meta
+ *     tags: [Metas]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.put('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const { title, targetCoins, targetReal, type } = req.body;
+  const userId = req.user?.id;
+  const role = req.user?.role;
+
+  try {
+    const goal = await prisma.goal.findUnique({
+      where: { id },
+    });
+
+    if (!goal) {
+      return res.status(404).json({ error: 'Meta/Sonho não encontrado.' });
+    }
+
+    // Apenas a própria criança ou seu pai/mãe pode editar
+    if (role === 'CHILD' && goal.childId !== userId) {
+      return res.status(403).json({ error: 'Acesso negado: Este sonho não pertence a você.' });
+    }
+    if (role === 'PARENT') {
+      const childUser = await prisma.user.findUnique({ where: { id: goal.childId } });
+      const familyAdminId = req.user?.parentId || req.user?.id;
+      if (!childUser || childUser.parentId !== familyAdminId) {
+        return res.status(403).json({ error: 'Acesso negado: Criança não pertence ao seu grupo familiar.' });
+      }
+    }
+
+    const wallet = await prisma.wallet.findUnique({ where: { userId: goal.childId } });
+    if (!wallet) {
+      return res.status(404).json({ error: 'Carteira do usuário não encontrada.' });
+    }
+
+    let updatedType = goal.type;
+    let newCurrentCoins = goal.currentCoins;
+    let newCurrentReal = parseFloat(goal.currentReal.toString());
+
+    // Se o tipo mudou, devolve o saldo antigo e zera a poupança do sonho
+    if (type && type !== goal.type) {
+      updatedType = type;
+      if (goal.currentCoins > 0) {
+        await prisma.wallet.update({
+          where: { id: wallet.id },
+          data: {
+            balanceCoins: wallet.balanceCoins + goal.currentCoins,
+            totalSpentCoins: Math.max(0, wallet.totalSpentCoins - goal.currentCoins),
+          },
+        });
+        newCurrentCoins = 0;
+      }
+      if (parseFloat(goal.currentReal.toString()) > 0) {
+        const refundedReal = parseFloat(goal.currentReal.toString());
+        await prisma.wallet.update({
+          where: { id: wallet.id },
+          data: {
+            balanceReal: wallet.balanceReal.toNumber() + refundedReal,
+            totalSpentReal: Math.max(0, wallet.totalSpentReal.toNumber() - refundedReal),
+          },
+        });
+        newCurrentReal = 0;
+      }
+    }
+
+    // Calcula se foi completado com base nos novos alvos
+    const newTargetCoins = targetCoins !== undefined ? parseInt(targetCoins.toString()) : goal.targetCoins;
+    const newTargetReal = targetReal !== undefined ? parseFloat(targetReal.toString()) : parseFloat(goal.targetReal.toString());
+
+    let completed = goal.completed;
+    if (updatedType === 'COINS') {
+      completed = newCurrentCoins >= newTargetCoins;
+    } else {
+      completed = newCurrentReal >= newTargetReal;
+    }
+
+    const updatedGoal = await prisma.goal.update({
+      where: { id },
+      data: {
+        title: title || goal.title,
+        type: updatedType,
+        targetCoins: newTargetCoins,
+        targetReal: newTargetReal,
+        currentCoins: newCurrentCoins,
+        currentReal: newCurrentReal,
+        completed,
+      },
+    });
+
+    return res.json(updatedGoal);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @openapi
+ * /api/goals/{id}:
+ *   delete:
+ *     summary: Exclui um sonho/meta e devolve o dinheiro/moedas para a carteira
+ *     tags: [Metas]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const userId = req.user?.id;
+  const role = req.user?.role;
+
+  try {
+    const goal = await prisma.goal.findUnique({
+      where: { id },
+    });
+
+    if (!goal) {
+      return res.status(404).json({ error: 'Meta/Sonho não encontrado.' });
+    }
+
+    // Apenas a própria criança ou seu pai/mãe pode excluir
+    if (role === 'CHILD' && goal.childId !== userId) {
+      return res.status(403).json({ error: 'Acesso negado: Este sonho não pertence a você.' });
+    }
+    if (role === 'PARENT') {
+      const childUser = await prisma.user.findUnique({ where: { id: goal.childId } });
+      const familyAdminId = req.user?.parentId || req.user?.id;
+      if (!childUser || childUser.parentId !== familyAdminId) {
+        return res.status(403).json({ error: 'Acesso negado: Criança não pertence ao seu grupo familiar.' });
+      }
+    }
+
+    const wallet = await prisma.wallet.findUnique({ where: { userId: goal.childId } });
+    if (!wallet) {
+      return res.status(404).json({ error: 'Carteira do usuário não encontrada.' });
+    }
+
+    // Se houver moedas ou dinheiro guardados, devolve para a carteira da criança
+    if (goal.currentCoins > 0) {
+      await prisma.wallet.update({
+        where: { id: wallet.id },
+        data: {
+          balanceCoins: wallet.balanceCoins + goal.currentCoins,
+          totalSpentCoins: Math.max(0, wallet.totalSpentCoins - goal.currentCoins),
+        },
+      });
+    }
+
+    const currentRealVal = parseFloat(goal.currentReal.toString());
+    if (currentRealVal > 0) {
+      await prisma.wallet.update({
+        where: { id: wallet.id },
+        data: {
+          balanceReal: wallet.balanceReal.toNumber() + currentRealVal,
+          totalSpentReal: Math.max(0, wallet.totalSpentReal.toNumber() - currentRealVal),
+        },
+      });
+    }
+
+    await prisma.goal.delete({
+      where: { id },
+    });
+
+    return res.json({ message: 'Sonho excluído com sucesso e valores devolvidos à carteira!' });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;
+
