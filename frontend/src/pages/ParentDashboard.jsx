@@ -47,6 +47,8 @@ import {
   BarChart2
 } from 'lucide-react';
 import AvatarRenderer from '../components/AvatarRenderer';
+import { io } from 'socket.io-client';
+import { playSuccessSound } from '../utils/sound';
 
 export default function ParentDashboard() {
   const { user, logout, refreshUser } = useAuth();
@@ -308,6 +310,39 @@ export default function ParentDashboard() {
   useEffect(() => {
     loadChildGoals();
   }, [selectedChildId]);
+
+  // WebSockets Connection
+  useEffect(() => {
+    if (!user) return;
+
+    const socketUrl = import.meta.env.VITE_API_URL 
+      ? import.meta.env.VITE_API_URL.replace('/api', '') 
+      : 'http://localhost:5001';
+    const socket = io(socketUrl);
+
+    socket.emit('register', user.id);
+
+    socket.on('notification', (notif) => {
+      playSuccessSound();
+      setSuccess(notif.message);
+      setTimeout(() => setSuccess(''), 6000);
+      loadData();
+    });
+
+    socket.on('task_completed', () => {
+      playSuccessSound();
+      loadData();
+    });
+
+    socket.on('expense_requested', () => {
+      playSuccessSound();
+      loadData();
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [user]);
 
   useEffect(() => {
     if (activeTab === 'summary' && selectedChildId && children.length > 0) {
@@ -817,7 +852,7 @@ export default function ParentDashboard() {
                     {reportData.recommendations && reportData.recommendations.length > 0 ? (
                       <ul className="space-y-1.5">
                         {reportData.recommendations.map((rec, idx) => (
-                          <li key={idx} className="text-[9.5px] text-slate-350 leading-relaxed flex items-start gap-1.5">
+                          <li key={idx} className="text-[9.5px] text-slate-200 leading-relaxed flex items-start gap-1.5">
                             <span className="text-amber-500 font-bold mt-0.5 shrink-0">•</span>
                             <span>{rec}</span>
                           </li>
@@ -1215,7 +1250,7 @@ export default function ParentDashboard() {
                       className={`flex-1 py-2.5 rounded-xl text-[10px] font-black transition-all active:scale-98 ${
                         taskViewMode === item.mode 
                           ? 'bg-slate-900 text-white shadow-xs border border-slate-800' 
-                          : 'text-slate-500 hover:text-slate-350'
+                          : 'text-slate-500 hover:text-slate-300'
                       }`}
                     >
                       {item.label}

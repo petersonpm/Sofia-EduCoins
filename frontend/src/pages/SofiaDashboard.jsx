@@ -951,7 +951,7 @@ export default function SofiaDashboard() {
                       className={`flex-1 py-2.5 rounded-xl text-xs font-black transition-all active:scale-98 ${
                         taskViewMode === item.mode 
                           ? 'bg-slate-900 text-white shadow-xs border border-slate-800' 
-                          : 'text-slate-500 hover:text-slate-350'
+                          : 'text-slate-500 hover:text-slate-300'
                       }`}
                     >
                       {item.label}

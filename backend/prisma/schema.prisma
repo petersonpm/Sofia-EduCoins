@@ -38,6 +38,8 @@ model User {
 
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
+
+  @@index([parentId])
 }
 
 model Wallet {
@@ -79,6 +81,10 @@ model Task {
   assignedTo     User       @relation("AssignedTasks", fields: [assignedToId], references: [id])
   
   createdAt      DateTime   @default(now())
+
+  @@index([assignedToId])
+  @@index([assignedToId, status])
+  @@index([createdById])
 }
 
 model Goal {
@@ -95,6 +101,8 @@ model Goal {
   child          User     @relation(fields: [childId], references: [id], onDelete: Cascade)
   
   createdAt      DateTime @default(now())
+
+  @@index([childId])
 }
 
 model Expense {
@@ -109,6 +117,8 @@ model Expense {
   child          User     @relation(fields: [childId], references: [id], onDelete: Cascade)
   
   createdAt      DateTime @default(now())
+
+  @@index([childId])
 }
 
 model Achievement {
@@ -143,6 +153,8 @@ model Notification {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Jar {
@@ -158,4 +170,6 @@ model Jar {
   child          User     @relation(fields: [childId], references: [id], onDelete: Cascade)
   
   createdAt      DateTime @default(now())
+
+  @@index([childId])
 }

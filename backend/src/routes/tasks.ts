@@ -48,6 +48,7 @@ async function resetDailyTasksForChildren(childIds: string[], forceAll: boolean 
 
   const idsToDelete: string[] = [];
   const idsToReset: string[] = [];
+  const tasksToCreate: any[] = [];
 
   for (const key in groups) {
     const instances = groups[key];
@@ -58,24 +59,22 @@ async function resetDailyTasksForChildren(childIds: string[], forceAll: boolean 
       const isStale = original.completedAt && new Date(original.completedAt) < todayStart;
       if (forceAll || isStale) {
         // Clonar para preservar o histórico da tentativa do dia anterior
-        await prisma.task.create({
-          data: {
-            title: original.title,
-            description: original.description,
-            category: original.category,
-            difficulty: original.difficulty,
-            status: original.status,
-            isDaily: true,
-            rewardType: original.rewardType,
-            rewardCoins: original.rewardCoins,
-            rewardReal: original.rewardReal,
-            xpReward: original.xpReward,
-            completedAt: original.completedAt,
-            approvedAt: original.approvedAt,
-            createdById: original.createdById,
-            assignedToId: original.assignedToId,
-            deadline: original.deadline,
-          },
+        tasksToCreate.push({
+          title: original.title,
+          description: original.description,
+          category: original.category,
+          difficulty: original.difficulty,
+          status: original.status,
+          isDaily: true,
+          rewardType: original.rewardType,
+          rewardCoins: original.rewardCoins,
+          rewardReal: original.rewardReal,
+          xpReward: original.xpReward,
+          completedAt: original.completedAt,
+          approvedAt: original.approvedAt,
+          createdById: original.createdById,
+          assignedToId: original.assignedToId,
+          deadline: original.deadline,
         });
         idsToReset.push(original.id);
       }
@@ -96,6 +95,12 @@ async function resetDailyTasksForChildren(childIds: string[], forceAll: boolean 
         }
       }
     }
+  }
+
+  if (tasksToCreate.length > 0) {
+    await prisma.task.createMany({
+      data: tasksToCreate,
+    });
   }
 
   if (idsToReset.length > 0) {
@@ -200,10 +205,9 @@ router.get('/report', authenticateToken, requireParent, async (req: Authenticate
 
     if (!child) return res.status(404).json({ error: 'Crianca nao encontrada.' });
 
-    // All approved task records for this child (performance history)
-    const approvedTasks = await prisma.task.findMany({
+    // Count total approved tasks (fast count query)
+    const totalApproved = await prisma.task.count({
       where: { assignedToId: childId, status: 'APPROVED' },
-      orderBy: { approvedAt: 'desc' },
     });
 
     const now = new Date();
@@ -212,9 +216,19 @@ router.get('/report', authenticateToken, requireParent, async (req: Authenticate
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOf30Days = new Date(now); startOf30Days.setDate(now.getDate() - 30);
 
-    const thisWeek = approvedTasks.filter(t => t.approvedAt && new Date(t.approvedAt) >= startOfWeek);
-    const thisMonth = approvedTasks.filter(t => t.approvedAt && new Date(t.approvedAt) >= startOfMonth);
-    const last30 = approvedTasks.filter(t => t.approvedAt && new Date(t.approvedAt) >= startOf30Days);
+    // Only fetch recent approved tasks from the last 30 days
+    const recentApprovedTasks = await prisma.task.findMany({
+      where: {
+        assignedToId: childId,
+        status: 'APPROVED',
+        approvedAt: { gte: startOf30Days },
+      },
+      orderBy: { approvedAt: 'desc' },
+    });
+
+    const thisWeek = recentApprovedTasks.filter(t => t.approvedAt && new Date(t.approvedAt) >= startOfWeek);
+    const thisMonth = recentApprovedTasks.filter(t => t.approvedAt && new Date(t.approvedAt) >= startOfMonth);
+    const last30 = recentApprovedTasks;
 
     // Category breakdown (last 30 days)
     const categoryMap: Record<string, { count: number; coins: number; real: number; xp: number }> = {};
@@ -233,7 +247,7 @@ router.get('/report', authenticateToken, requireParent, async (req: Authenticate
       const key = d.toISOString().split('T')[0];
       dailyActivity[key] = 0;
     }
-    approvedTasks.forEach(t => {
+    recentApprovedTasks.forEach(t => {
       if (!t.approvedAt) return;
       const key = new Date(t.approvedAt).toISOString().split('T')[0];
       if (dailyActivity[key] !== undefined) dailyActivity[key]++;
@@ -295,7 +309,7 @@ router.get('/report', authenticateToken, requireParent, async (req: Authenticate
         totalEarnedReal: parseFloat(((child.wallet as any)?.totalEarnedReal || 0).toString()),
       },
       summary: {
-        totalApproved: approvedTasks.length,
+        totalApproved,
         thisWeek: {
           count: thisWeek.length,
           coins: thisWeek.reduce((s, t) => s + t.rewardCoins, 0),
